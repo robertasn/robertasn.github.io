@@ -203,31 +203,44 @@
       }
     }
 
-    // Playful ear-chomp squeak + happy celebratory fanfare!
+    // Punchy cartoon CHOMP snap + cute Pocky squeak + happy celebratory fanfare!
     playEarBiteWin() {
       if (!this.started || this.muted || !this.ctx) return;
       const ctx = this.ctx;
       const now = ctx.currentTime;
 
+      // Crisp playful "CHOMP!" jaw-snap pop
+      const snapOsc = ctx.createOscillator();
+      const snapGain = ctx.createGain();
+      snapOsc.type = 'square';
+      snapOsc.frequency.setValueAtTime(240, now);
+      snapOsc.frequency.exponentialRampToValueAtTime(75, now + 0.065);
+      snapGain.gain.setValueAtTime(0.28, now);
+      snapGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.075);
+      snapOsc.connect(snapGain);
+      snapGain.connect(this.master);
+      snapOsc.start(now);
+      snapOsc.stop(now + 0.08);
+
       // Cute surprised Pocky "yeep!"
       const squeak = ctx.createOscillator();
       const sg = ctx.createGain();
       squeak.type = 'triangle';
-      squeak.frequency.setValueAtTime(620, now);
-      squeak.frequency.exponentialRampToValueAtTime(1120, now + 0.09);
-      squeak.frequency.exponentialRampToValueAtTime(780, now + 0.18);
-      sg.gain.setValueAtTime(0.0001, now);
-      sg.gain.linearRampToValueAtTime(0.24, now + 0.02);
-      sg.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+      squeak.frequency.setValueAtTime(660, now + 0.04);
+      squeak.frequency.exponentialRampToValueAtTime(1240, now + 0.13);
+      squeak.frequency.exponentialRampToValueAtTime(800, now + 0.24);
+      sg.gain.setValueAtTime(0.0001, now + 0.04);
+      sg.gain.linearRampToValueAtTime(0.25, now + 0.06);
+      sg.gain.exponentialRampToValueAtTime(0.0001, now + 0.27);
       squeak.connect(sg);
       sg.connect(this.master);
-      squeak.start(now);
-      squeak.stop(now + 0.24);
+      squeak.start(now + 0.04);
+      squeak.stop(now + 0.29);
 
       // Happy victory arpeggio
       const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5];
       notes.forEach((freq, idx) => {
-        const t = now + 0.18 + idx * 0.095;
+        const t = now + 0.26 + idx * 0.095;
         const osc = ctx.createOscillator();
         const g = ctx.createGain();
         osc.type = 'triangle';

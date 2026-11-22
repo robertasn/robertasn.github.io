@@ -17,7 +17,9 @@
   const COL_NOSE        = hex('#875248'); // signature dusty rose / liver chocolate-dog nose
   const COL_EYE         = hex('#150A06'); // soulful dark espresso eye
   const COL_EYE_SPARK   = hex('#FFFFFF'); // bright catchlight
-  const COL_TONGUE      = hex('#D9747E'); // happy pink tongue
+  const COL_TEETH       = hex('#FFFDF6'); // crisp cute little white teeth
+  const COL_MOUTH_DARK  = hex('#5E242B'); // warm inner mouth roof
+  const COL_TONGUE      = hex('#E87482'); // happy pink tongue
   const COL_COLLAR_PINK = hex('#E24C8B'); // Pixel's bright pink collar from the photo!
   const COL_COLLAR_TAG  = hex('#2B3A4A'); // little dark blue-grey ID tag
 
@@ -148,7 +150,21 @@
       const pad = MB.ellipsoid(0.052, 0.042, 0.072, 10, 8, COL_TAN);
       MB.translate(pad, side * 0.038, -0.044, 0.24);
       parts.push(pad);
+
+      // Cute visible upper white canine teeth so wide-open chomps read unmistakably!
+      const fang = MB.cone ? null : MB.cylinder(0.004, 0.014, 0.034, 7, COL_TEETH, COL_TEETH, 0, 0, true, true);
+      MB.translate(fang, side * 0.038, -0.092, 0.265);
+      parts.push(fang);
+
+      const molar = MB.ellipsoid(0.010, 0.012, 0.022, 6, 5, COL_TEETH);
+      MB.translate(molar, side * 0.040, -0.076, 0.215);
+      parts.push(molar);
     }
+
+    // Warm dark inner mouth roof (visible when Pixel opens wide to chomp!)
+    const palate = MB.ellipsoid(0.052, 0.018, 0.11, 8, 6, COL_MOUTH_DARK);
+    MB.translate(palate, 0, -0.068, 0.20);
+    parts.push(palate);
 
     // Distinct liver / dusty-rose chocolate-dog nose integrated cleanly at snout tip
     const nose = MB.ellipsoid(0.042, 0.030, 0.032, 12, 8, (nx, ny, nz) =>
@@ -183,13 +199,24 @@
 
   function buildJawMesh() {
     const parts = [];
-    const jaw = MB.ellipsoid(0.060, 0.030, 0.125, 10, 7, COL_TAN);
-    MB.translate(jaw, 0, -0.015, 0.105);
+    const jaw = MB.ellipsoid(0.064, 0.034, 0.138, 12, 8, COL_TAN);
+    MB.translate(jaw, 0, -0.018, 0.115);
     parts.push(jaw);
 
-    const tongue = MB.ellipsoid(0.032, 0.014, 0.062, 8, 6, COL_TONGUE);
-    MB.translate(tongue, 0, 0.008, 0.125);
+    const innerJaw = MB.ellipsoid(0.048, 0.014, 0.108, 8, 6, COL_MOUTH_DARK);
+    MB.translate(innerJaw, 0, 0.006, 0.115);
+    parts.push(innerJaw);
+
+    const tongue = MB.ellipsoid(0.036, 0.018, 0.078, 8, 6, COL_TONGUE);
+    MB.translate(tongue, 0, 0.016, 0.135);
     parts.push(tongue);
+
+    // Lower cute white teeth!
+    for (const side of [-1, 1]) {
+      const lowerFang = MB.cylinder(0.012, 0.004, 0.028, 7, COL_TEETH, COL_TEETH, 0, 0, true, true);
+      MB.translate(lowerFang, side * 0.034, 0.006, 0.195);
+      parts.push(lowerFang);
+    }
     return MB.merge(parts);
   }
 
@@ -352,27 +379,28 @@
       this.biteAnimTime = 0;
     }
 
-    startEarBite(pocky, world) {
+    startEarBite(pocky, world, onChompImpact) {
       this.bitingEar = true;
       this.biteAnimTime = 0;
+      this.chompFired = false;
+      this.onChompImpact = onChompImpact || null;
       this.happyTimer = 99;
       this.speed = 0;
       this.vel.x = this.vel.z = this.vel.y = 0;
-      this.biteAnchor = { x: 0, z: 0 };
 
-      // Stand cleanly on Pocky's left-front side facing right into Pocky's outstretched left ear!
+      // Remember Pixel's starting position & yaw for a smooth athletic pounce into the ear bite!
+      this.biteStart = { x: this.pos.x, y: this.pos.y, z: this.pos.z, yaw: this.yaw };
+
+      // Target stance cleanly on Pocky's left side angled slightly open toward the camera so jaws + stretched ear are 100% visible!
       const ear = pocky.getLeftEarTipWorldPos();
-      // Pixel approaches from Pocky's left-front (angle ~110° from Pocky's forward) so torsos never clip!
-      this.yaw = pocky.yaw - 1.92;
-      const fx = Math.sin(this.yaw);
-      const fz = Math.cos(this.yaw);
-      // Pixel's mouth grip point is ~0.78 units forward of Pixel's root
-      this.pos.x = ear[0] - fx * 0.78;
-      this.pos.z = ear[2] - fz * 0.78;
-      this.pos.y = world.getHeight(this.pos.x, this.pos.z);
-      this.biteAnchor.x = this.pos.x;
-      this.biteAnchor.z = this.pos.z;
-      this.grounded = true;
+      const targetYaw = pocky.yaw - 1.52;
+      const fx = Math.sin(targetYaw);
+      const fz = Math.cos(targetYaw);
+      const tx = ear[0] - fx * 0.90;
+      const tz = ear[2] - fz * 0.90;
+      const ty = world.getHeight(tx, tz);
+      this.biteAnchor = { x: tx, y: ty, z: tz, yaw: targetYaw };
+      this.grounded = false;
     }
 
     triggerBark(audio, spawnParticles) {
@@ -400,17 +428,42 @@
       if (this.bitingEar) {
         this.biteAnimTime += dt;
         this.speed = 0;
-        this.tailPhase += 19 * dt;
-        // Subtle playful tug back-and-forth synced with Pocky's ear!
-        if (this.biteAnchor) {
+        this.tailPhase += 21 * dt;
+        const pounceDur = 0.34;
+
+        if (this.biteAnimTime < pounceDur && this.biteStart && this.biteAnchor) {
+          // Stage 1: Athletic springy pounce right toward Pocky's ear with mouth wide open!
+          const u = clamp(this.biteAnimTime / pounceDur, 0, 1);
+          const ease = 1 - Math.pow(1 - u, 2.2);
+          this.pos.x = lerp(this.biteStart.x, this.biteAnchor.x, ease);
+          this.pos.z = lerp(this.biteStart.z, this.biteAnchor.z, ease);
+          const baseH = lerp(this.biteStart.y, this.biteAnchor.y, ease);
+          this.pos.y = baseH + Math.sin(u * Math.PI) * 0.34;
+          this.yaw = dampAngle(this.yaw, this.biteAnchor.yaw, 18, dt);
+          this.groundPitch = lerp(-0.18, 0.12, u);
+          this.squash = lerp(1.16, 0.92, u);
+          this.grounded = false;
+        } else {
+          // Stage 2 & 3: IMPACT CHOMP + Playful Dachshund Ear-Tug Wrestling!
+          if (!this.chompFired) {
+            this.chompFired = true;
+            this.squash = 0.80;
+            if (this.onChompImpact) this.onChompImpact();
+          }
+          const tAfter = this.biteAnimTime - pounceDur;
+          this.yaw = dampAngle(this.yaw, this.biteAnchor.yaw, 16, dt);
           const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
-          const tug = Math.sin(this.biteAnimTime * 7.5) * 0.035;
-          this.pos.x = this.biteAnchor.x - fx * tug;
-          this.pos.z = this.biteAnchor.z - fz * tug;
+          // Energetic playful pull-back & shake tug synced with Pocky's stretched ear!
+          const pullBack = 0.055 + Math.sin(tAfter * 9.5) * 0.048;
+          this.pos.x = this.biteAnchor.x - fx * pullBack;
+          this.pos.z = this.biteAnchor.z - fz * pullBack;
+          this.pos.y = this.biteAnchor.y;
+          this.grounded = true;
+          // Playful tug-of-war crouch (front shoulders dip slightly!)
+          this.groundPitch = damp(this.groundPitch, 0.14 + Math.sin(tAfter * 9.5) * 0.04, 12, dt);
+          this.bodyRoll = damp(this.bodyRoll, Math.sin(tAfter * 11.0) * 0.09, 12, dt);
+          this.squash = damp(this.squash, 1.0, 10, dt);
         }
-        this.squash = damp(this.squash, 1.0, 10, dt);
-        this.groundPitch = damp(this.groundPitch, 0, 8, dt);
-        this.bodyRoll = damp(this.bodyRoll, 0, 8, dt);
         return;
       }
 
@@ -562,24 +615,48 @@
       Mat4.rotateZ(this.mBody, this.mBody, this.bodyRoll);
       Mat4.scale(this.mBody, this.mBody, invSq, this.squash, invSq);
 
-      // Head matrix (stabilized slightly against body bob, turns into corners, perks on bark!)
+      // Head matrix (wide-open pounce -> SNAP chomp -> vigorous playful ear-tug head shake!)
       Mat4.copy(this.mHead, this.mBody);
       Mat4.translate(this.mHead, this.mHead, 0, 0.66, 0.55);
       const barkLift = this.barkTimer > 0 ? Math.sin((this.barkTimer / 0.42) * Math.PI) * -0.26 : 0;
       const idleLook = Math.sin(time * 0.85) * 0.14 * (1 - runBlend);
-      const biteTug = this.bitingEar ? Math.sin(this.biteAnimTime * 7.5) : 0;
-      Mat4.rotateY(this.mHead, this.mHead, this.bitingEar ? (biteTug * 0.07) : (this.headLookYaw + idleLook));
-      Mat4.rotateX(this.mHead, this.mHead, this.bitingEar ? (0.14 + Math.abs(biteTug) * 0.05) : (-stridePitch * 0.55 + barkLift + (this.isSprinting ? 0.08 : -0.04)));
-      if (this.bitingEar) Mat4.rotateZ(this.mHead, this.mHead, 0.16 + biteTug * 0.08);
 
-      // Lower jaw (opens adorably during bark, playful ear chomp right on Pocky's ear, or happy pant!)
+      let headYaw = this.headLookYaw + idleLook;
+      let headPitch = -stridePitch * 0.55 + barkLift + (this.isSprinting ? 0.08 : -0.04);
+      let headRoll = 0;
+      let chompOpen = 0;
+
+      if (this.bitingEar) {
+        const pounceDur = 0.34;
+        if (this.biteAnimTime < pounceDur) {
+          // Stage 1: Lunge with jaws WIDE OPEN showing teeth & tongue!
+          const u = this.biteAnimTime / pounceDur;
+          headYaw = 0;
+          headPitch = lerp(-0.18, 0.06, u);
+          headRoll = 0.12 * u;
+          chompOpen = lerp(0.25, 0.64, Math.sin(u * Math.PI * 0.85));
+        } else {
+          // Stage 2 & 3: SNAP SHUT on ear + vigorous side-to-side tug + occasional re-nom!
+          const tAfter = this.biteAnimTime - pounceDur;
+          const shake = Math.sin(tAfter * 12.5);
+          headYaw = shake * 0.14;
+          headPitch = 0.04 + Math.sin(tAfter * 9.5) * 0.06;
+          headRoll = 0.14 + shake * 0.14;
+          // Snap shut on impact, then visible teeth gripping & chomping the ear!
+          const reNom = Math.max(0, Math.sin(tAfter * 5.0 - 0.8));
+          chompOpen = 0.18 + Math.pow(reNom, 2) * 0.28;
+        }
+      }
+
+      Mat4.rotateY(this.mHead, this.mHead, headYaw);
+      Mat4.rotateX(this.mHead, this.mHead, headPitch);
+      if (headRoll !== 0) Mat4.rotateZ(this.mHead, this.mHead, headRoll);
+
+      // Lower jaw
       Mat4.copy(this.mJaw, this.mHead);
-      Mat4.translate(this.mJaw, this.mJaw, 0, -0.055, 0.085);
+      Mat4.translate(this.mJaw, this.mJaw, 0, -0.052, 0.082);
       const barkOpen = this.barkTimer > 0 ? Math.sin((this.barkTimer / 0.42) * Math.PI) * 0.36 : 0;
-      // Distinct chomp-chomp-chomp rhythm right around the ear!
-      const chompCycle = this.bitingEar ? Math.pow(0.5 + 0.5 * Math.sin(this.biteAnimTime * 7.5), 2) : 0;
-      const chompOpen = this.bitingEar ? (0.06 + chompCycle * 0.34) : 0;
-      const pantOpen = this.speed > 5 ? (0.07 + Math.sin(time * 14) * 0.04) : 0.02;
+      const pantOpen = (!this.bitingEar && this.speed > 5) ? (0.07 + Math.sin(time * 14) * 0.04) : (this.bitingEar ? 0 : 0.02);
       Mat4.rotateX(this.mJaw, this.mJaw, barkOpen + chompOpen + pantOpen);
 
       // Silky floppy ears with lively bounce, wind trail & corner swing (swept slightly back while chomping so mouth is clearly visible!)

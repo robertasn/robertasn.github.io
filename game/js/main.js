@@ -15,6 +15,7 @@
   const chaseDistEl = document.getElementById('chase-dist');
   const chaseBarFill = document.getElementById('chase-bar-fill');
   const bitePromptEl = document.getElementById('bite-prompt');
+  const chompBadgeEl = document.getElementById('chomp-badge');
   const barkBubbleEl = document.getElementById('pocky-bark-bubble');
   const pockyArrowEl = document.getElementById('pocky-arrow');
   const victoryStatsEl = document.getElementById('victory-stats');
@@ -41,6 +42,7 @@
   let announcedShrink = false;
   let announcedBiteReady = false;
   let speedBoostTimer = 0;
+  let camShakeTimer = 0;
 
   // Third-person spring-follow camera (hero framing both Pixel & Pocky on title screen!)
   const cam = {
@@ -201,6 +203,8 @@
     victoryOverlay.classList.add('hidden');
     hud.classList.remove('hidden');
     bitePromptEl.classList.add('hidden');
+    chompBadgeEl.classList.add('hidden');
+    camShakeTimer = 0;
 
     // Place camera cleanly behind Pixel facing Pocky down the trail!
     cam.yaw = 0;
@@ -224,15 +228,16 @@
     bitePromptEl.classList.add('hidden');
     pockyArrowEl.classList.add('hidden');
 
-    pocky.onEarBitten(audio, spawnParticles);
-    pixel.startEarBite(pocky, world);
-
-    // Frame camera from the open front side looking straight at Pixel's jaws chomping Pocky's ear!
-    cam.yaw = pocky.yaw - 0.18;
-    cam.pitch = 0.18;
-    cam.targetDist = 2.3;
-
-    showToast("CHOMP!! Pixel bit Pocky's ear!!", 2.4);
+    pocky.onEarBittenStart();
+    audio.playJump(); // pounce whoosh!
+    pixel.startEarBite(pocky, world, () => {
+      // Fires right at jaw snap impact!
+      pocky.onChompLanded(audio, spawnParticles);
+      camShakeTimer = 0.28;
+      chompBadgeEl.textContent = 'CHOMP!!';
+      chompBadgeEl.classList.remove('hidden');
+      showToast("CHOMP!! Pixel bit Pocky's ear!!", 2.6);
+    });
 
     const chaseSec = Math.round(pocky.chaseTime);
     const totalSec = Math.round(totalRunTime);
@@ -459,15 +464,26 @@
       audio.update(dt);
     } else if (gameWon) {
       winElapsed += dt;
+      if (camShakeTimer > 0) camShakeTimer = Math.max(0, camShakeTimer - dt);
       pixel.update(dt, input, cam.yaw, world, null, null);
       pocky.update(dt, time, pixel, world, null, null, true);
 
-      // Gentle close-up showcase angle from the open front showing both faces & Pixel chomping Pocky's ear!
-      cam.yaw = pocky.yaw - 0.18 + Math.sin(winElapsed * 0.65) * 0.32;
-      cam.pitch = damp(cam.pitch, 0.18, 4, dt);
-      cam.targetDist = 2.3;
+      // Smoothly glide camera around to tight front close-up on the ear-chomp!
+      const targetWinYaw = pocky.yaw - 0.14 + Math.sin(winElapsed * 0.7) * 0.22;
+      cam.yaw = dampAngle(cam.yaw, targetWinYaw, 5.5, dt);
+      cam.pitch = damp(cam.pitch, 0.16, 5.5, dt);
+      cam.targetDist = 1.85;
 
-      if (winElapsed > 1.9 && victoryOverlay.classList.contains('hidden')) {
+      // Cycle comic chomp text playfully during ear-tug!
+      if (pocky.chompLanded) {
+        if (winElapsed > 1.55) chompBadgeEl.textContent = 'NOM! NOM!';
+        if (Math.random() < dt * 3.5) {
+          const earPt = pocky.getLeftEarTipWorldPos();
+          spawnParticles('bark', earPt[0], earPt[1] + 0.12, earPt[2]);
+        }
+      }
+
+      if (winElapsed > 2.8 && victoryOverlay.classList.contains('hidden')) {
         victoryOverlay.classList.remove('hidden');
       }
     } else {
@@ -509,13 +525,22 @@
     const minCamY = world.getHeight(desiredX, desiredZ) + 0.62;
     if (desiredY < minCamY) desiredY = minCamY;
 
-    const camFollow = playing ? (gameWon ? 4.5 : 10) : 5;
+    const camFollow = playing ? (gameWon ? 6.5 : 10) : 5;
     cam.pos[0] = damp(cam.pos[0], desiredX, camFollow, dt);
     cam.pos[1] = damp(cam.pos[1], desiredY, camFollow, dt);
     cam.pos[2] = damp(cam.pos[2], desiredZ, camFollow, dt);
     cam.lookAt[0] = damp(cam.lookAt[0], lookTargetX, 14, dt);
     cam.lookAt[1] = damp(cam.lookAt[1], lookTargetY, 14, dt);
     cam.lookAt[2] = damp(cam.lookAt[2], lookTargetZ, 14, dt);
+
+    // Playful camera impact micro-shake right on CHOMP!
+    const renderCamPos = camShakeTimer > 0
+      ? [
+          cam.pos[0] + (Math.random() - 0.5) * 0.12 * (camShakeTimer / 0.28),
+          cam.pos[1] + (Math.random() - 0.5) * 0.12 * (camShakeTimer / 0.28),
+          cam.pos[2] + (Math.random() - 0.5) * 0.12 * (camShakeTimer / 0.28),
+        ]
+      : cam.pos;
 
     // Update dynamic particles
     for (let i = fxParticles.length - 1; i >= 0; i--) {
@@ -557,13 +582,13 @@
     renderer.render(
       drawList,
       renderParticles,
-      cam.pos,
+      renderCamPos,
       cam.lookAt,
       [pixel.pos.x, pixel.pos.y, pixel.pos.z],
       time
     );
 
-    // Update 2D projected Pocky bark bubble & off-screen directional indicator
+    // Update 2D projected Pocky bark bubble, CHOMP badge & off-screen indicator
     if (playing) {
       const pHead = pocky.getHeadWorldPos();
       const proj = projectToScreen(pHead[0], pHead[1] + 0.35, pHead[2]);
@@ -575,6 +600,18 @@
         barkBubbleEl.classList.remove('hidden');
       } else {
         barkBubbleEl.classList.add('hidden');
+      }
+
+      if (gameWon && pocky.chompLanded) {
+        const earPt = pocky.getLeftEarTipWorldPos();
+        const ep = projectToScreen(earPt[0], earPt[1] + 0.32, earPt[2]);
+        if (ep.visible) {
+          chompBadgeEl.style.left = `${ep.x.toFixed(1)}px`;
+          chompBadgeEl.style.top = `${ep.y.toFixed(1)}px`;
+          chompBadgeEl.classList.remove('hidden');
+        }
+      } else {
+        chompBadgeEl.classList.add('hidden');
       }
 
       if (!gameWon && !proj.visible) {

@@ -355,14 +355,21 @@
       }
     }
 
-    onEarBitten(audio, spawnParticles) {
+    onEarBittenStart() {
       this.bitten = true;
+      this.chompLanded = false;
       this.biteAnimTime = 0;
       this.state = 'bitten';
       this.speed = 0;
       this.vel.x = this.vel.z = this.vel.y = 0;
       this.grounded = true;
-      this.squash = 0.90;
+      this.barkText = 'UH OH!!';
+      this.barkBubbleTimer = 0.5;
+    }
+
+    onChompLanded(audio, spawnParticles) {
+      this.chompLanded = true;
+      this.squash = 0.78;
       this.barkText = 'YEEP!! MY EAR!!';
       this.barkBubbleTimer = 5.0;
       this.barkTimer = 0.55;
@@ -377,11 +384,10 @@
       return Mat4.transformPoint(this.mHead, 0, 0.25, 0.08);
     }
 
-    // Analytic world position of Pocky's outstretched left ear tip (exact grip point for Pixel's mouth!)
+    // Analytic world position of Pocky's outstretched left ear tip (exact grip point for Pixel's jaws!)
     getLeftEarTipWorldPos() {
       const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
-      // Local (+0.27, 0.57, 0.53) -> world using local +X=(cy,0,-sy), local +Z=(sy,0,cy)
-      const lx = 0.27, ly = 0.57, lz = 0.53;
+      const lx = 0.36, ly = 0.56, lz = 0.56;
       return [
         this.pos.x + cy * lx + sy * lz,
         this.pos.y + ly,
@@ -444,11 +450,18 @@
         this.speed = 0;
         this.state = 'taunt';
       } else if (this.bitten) {
-        // Stay planted in place so Pixel's mouth stays cleanly latched onto Pocky's left ear!
+        // Stay anchored while reacting dramatically to Pixel pouncing & tugging Pocky's left ear!
         this.biteAnimTime = (this.biteAnimTime || 0) + dt;
         this.speed = 0;
         this.vel.x = this.vel.z = this.vel.y = 0;
-        this.headLookYaw = damp(this.headLookYaw, 0.28 + Math.sin(this.biteAnimTime * 7.5) * 0.09, 12, dt);
+        if (this.chompLanded) {
+          const tAfter = Math.max(0, this.biteAnimTime - 0.34);
+          this.headLookYaw = damp(this.headLookYaw, 0.36 + Math.sin(tAfter * 12.5) * 0.16, 14, dt);
+          this.bodyRoll = damp(this.bodyRoll, -0.14 - Math.sin(tAfter * 9.5) * 0.08, 12, dt);
+          if (tAfter > 1.7) this.barkText = 'HEY!! LET GO!!';
+        } else {
+          this.headLookYaw = damp(this.headLookYaw, 0.45, 14, dt);
+        }
       } else {
         // Determine whether Pixel is actively chasing Pocky
         const pixFwdX = Math.sin(pixel.yaw);
@@ -638,42 +651,56 @@
       // Head
       Mat4.copy(this.mHead, this.mBody);
       Mat4.translate(this.mHead, this.mHead, 0, 0.65, 0.53);
-      const biteTug = this.bitten ? Math.sin((this.biteAnimTime || 0) * 7.5) : 0;
+      const tAfterChomp = this.chompLanded ? Math.max(0, (this.biteAnimTime || 0) - 0.34) : 0;
+      const biteTug = this.chompLanded ? Math.sin(tAfterChomp * 9.5) : 0;
+      const biteShake = this.chompLanded ? Math.sin(tAfterChomp * 12.5) : 0;
       const barkLift = this.barkTimer > 0 ? Math.sin((this.barkTimer / 0.38) * Math.PI) * -0.28 : 0;
-      const headTilt = this.bitten
-        ? (-0.22 - biteTug * 0.08)
-        : (this.state === 'taunt' ? Math.sin(time * 1.9) * 0.12 : 0);
+      const headTilt = this.chompLanded
+        ? (-0.32 - biteTug * 0.12)
+        : (this.bitten ? -0.10 : (this.state === 'taunt' ? Math.sin(time * 1.9) * 0.12 : 0));
       Mat4.rotateY(this.mHead, this.mHead, this.headLookYaw);
-      Mat4.rotateX(this.mHead, this.mHead, this.bitten ? 0.04 : (-stridePitch * 0.5 + barkLift - playBow * 0.8));
+      Mat4.rotateX(this.mHead, this.mHead, this.chompLanded ? (0.06 + biteShake * 0.06) : (-stridePitch * 0.5 + barkLift - playBow * 0.8));
       Mat4.rotateZ(this.mHead, this.mHead, headTilt);
 
-      // Fluffy bearded jaw (pants harder as Pocky tires after 10s!)
+      // Fluffy bearded jaw (wide surprised yelp when ear is chomped!)
       Mat4.copy(this.mJaw, this.mHead);
       Mat4.translate(this.mJaw, this.mJaw, 0, -0.055, 0.08);
       const barkOpen = this.barkTimer > 0 ? Math.sin((this.barkTimer / 0.38) * Math.PI) * 0.38 : 0;
       const tiredPant = this.chaseTime > SHRINK_START_SEC
         ? (0.14 + Math.sin(time * 15) * 0.06)
         : (this.speed > 4 ? 0.06 : 0.02);
-      Mat4.rotateX(this.mJaw, this.mJaw, barkOpen + tiredPant + (this.bitten ? 0.14 : 0));
+      const yelpOpen = this.chompLanded ? (0.28 + Math.abs(biteTug) * 0.14) : (this.bitten ? 0.18 : 0);
+      Mat4.rotateX(this.mJaw, this.mJaw, barkOpen + (this.bitten ? yelpOpen : tiredPant));
 
-      // Chestnut ears — when bitten, left ear stretches cleanly outward right into Pixel's jaws!
+      // Chestnut ears — when chomped, left ear STRETCHES cleanly right into Pixel's clamped jaws and tugs in sync!
       const earWindBack = clamp(this.speed / 10.5, 0, 1) * 0.30;
       const earFlare = 0.08 + this.earBounce * 0.9;
 
       Mat4.copy(this.mEarL, this.mHead);
       Mat4.translate(this.mEarL, this.mEarL, 0.14, 0.068, 0.005);
-      Mat4.rotateX(this.mEarL, this.mEarL, this.bitten ? -0.08 : (earWindBack + Math.sin(this.gaitPhase - 0.4) * 0.11 * runBlend));
-      Mat4.rotateZ(this.mEarL, this.mEarL, this.bitten ? (0.62 + biteTug * 0.12) : earFlare);
+      if (this.chompLanded) {
+        Mat4.rotateX(this.mEarL, this.mEarL, -0.18 + biteShake * 0.14);
+        Mat4.rotateZ(this.mEarL, this.mEarL, 0.96 + biteTug * 0.16);
+        // Stretch Pocky's floppy chestnut ear visibly right into Pixel's teeth!
+        Mat4.scale(this.mEarL, this.mEarL, 0.90, 1.52 + biteTug * 0.18, 0.94);
+      } else {
+        Mat4.rotateX(this.mEarL, this.mEarL, earWindBack + Math.sin(this.gaitPhase - 0.4) * 0.11 * runBlend);
+        Mat4.rotateZ(this.mEarL, this.mEarL, earFlare);
+      }
 
       Mat4.copy(this.mEarR, this.mHead);
       Mat4.translate(this.mEarR, this.mEarR, -0.14, 0.068, 0.005);
       Mat4.rotateX(this.mEarR, this.mEarR, earWindBack + Math.sin(this.gaitPhase - 0.2) * 0.11 * runBlend);
-      Mat4.rotateZ(this.mEarR, this.mEarR, -earFlare);
+      Mat4.rotateZ(this.mEarR, this.mEarR, -earFlare - (this.chompLanded ? 0.18 + Math.abs(biteShake) * 0.15 : 0));
 
-      // 4 fuzzy golden-tan stubby legs
+      // 4 fuzzy golden-tan stubby legs (cute protest tippy-taps when ear is tugged!)
       const legAmp = (0.58 + sprintBlend * 0.28) * runBlend;
       let aFL, aFR, aBL, aBR;
-      if (!this.grounded) {
+      if (this.chompLanded) {
+        aFL = Math.sin(tAfterChomp * 14) * 0.32 - 0.18;
+        aFR = Math.sin(tAfterChomp * 14 + Math.PI) * 0.32 - 0.18;
+        aBL = 0.12; aBR = -0.12;
+      } else if (!this.grounded) {
         aFL = -0.58; aFR = -0.48; aBL = 0.56; aBR = 0.46;
       } else {
         aFL = Math.sin(this.gaitPhase) * legAmp;
