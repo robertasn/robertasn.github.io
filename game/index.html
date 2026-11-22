@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pixel &amp; Pocky</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+
+  <div id="title-overlay">
+    <div class="title-card">
+      <div class="portrait-ring duo">
+        <img src="assets/duo-photo.jpg" alt="Pixel and Pocky" />
+      </div>
+      <h1>PIXEL</h1>
+      <p class="subtitle">Chase Pocky Through the Forest!</p>
+      <p class="goal-desc">
+        Pocky keeps barking just out of reach. Chase for <strong>10s</strong> to start closing in,
+        and after <strong>20s</strong> catch up to bite Pocky&rsquo;s ear!
+      </p>
+      <button id="play-btn" type="button">Start the Chase!</button>
+      <p class="mini-hint">WASD / Arrows to run &bull; Shift for zoomies &bull; Space to jump</p>
+    </div>
+  </div>
+
+  <div id="victory-overlay" class="hidden">
+    <div class="title-card victory-card">
+      <div class="portrait-ring duo">
+        <img src="assets/duo-photo.jpg" alt="Pixel and Pocky" />
+      </div>
+      <div class="victory-badge">EAR CHOMPED!</div>
+      <h2>Pixel Got Pocky!</h2>
+      <p class="subtitle">Pixel caught up and playfully bit Pocky&rsquo;s floppy ear!</p>
+      <p id="victory-stats" class="victory-stats"></p>
+      <button id="replay-btn" type="button">Chase Again</button>
+    </div>
+  </div>
+
+  <div id="hud" class="hidden">
+    <div class="hud-top-left">
+      <img class="hud-avatar" src="assets/pixel-collar.jpg" alt="Pixel" />
+      <div class="chase-meta">
+        <div class="hud-name-row">
+          <span class="hud-name">PIXEL vs POCKY</span>
+          <span id="chase-dist" class="hud-dist">8.6m away</span>
+        </div>
+        <div id="chase-phase" class="hud-phase">Pocky stopped &amp; is barking at you!</div>
+        <div class="chase-bar-wrap">
+          <div class="chase-bar-track">
+            <div id="chase-bar-fill" class="chase-bar-fill"></div>
+            <div class="chase-bar-mid" title="10s: Distance starts shrinking"></div>
+          </div>
+          <span id="chase-timer" class="chase-timer">0.0s / 20s</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud-top-right">
+      <button id="mute-btn" class="hud-btn" type="button">Sound: On</button>
+      <button id="fs-btn" class="hud-btn" type="button">Fullscreen</button>
+    </div>
+
+    <div id="pocky-bark-bubble" class="bark-bubble hidden">ARF!</div>
+    <div id="pocky-arrow" class="pocky-arrow hidden">Pocky &#x1F43E;</div>
+
+    <div id="bite-prompt" class="bite-prompt hidden">
+      Press <kbd>B</kbd> / <kbd>Space</kbd> or run right in to <strong>BITE POCKY&rsquo;S EAR!</strong>
+    </div>
+
+    <div id="controls-card">
+      <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / Arrows &mdash; Chase Pocky</div>
+      <div><kbd>Shift</kbd> Zoomies &nbsp;&bull;&nbsp; <kbd>Space</kbd> Jump &nbsp;&bull;&nbsp; <kbd>B</kbd> Bark / Bite</div>
+      <div><kbd>Drag</kbd> / <kbd>Q</kbd><kbd>E</kbd> Look &nbsp;&bull;&nbsp; <kbd>Scroll</kbd> Zoom &nbsp;&bull;&nbsp; <kbd>R</kbd> Restart</div>
+    </div>
+
+    <div id="toast"></div>
+  </div>
+
+  <script src="js/math.js"></script>
+  <script src="js/mesh.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/pixel.js"></script>
+  <script src="js/pocky.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
