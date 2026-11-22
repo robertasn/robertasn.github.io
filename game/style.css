@@ -25,6 +25,23 @@ html, body {
   cursor: grabbing;
 }
 
+#version-badge {
+  position: fixed;
+  top: 14px;
+  right: 18px;
+  z-index: 30;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(28, 20, 14, 0.65);
+  border: 1px solid rgba(255, 238, 204, 0.22);
+  color: rgba(255, 234, 190, 0.85);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
 /* Title & Victory Overlays */
 #title-overlay, #victory-overlay {
   position: fixed;
@@ -296,7 +313,7 @@ html, body {
 
 .hud-top-right {
   position: absolute;
-  top: 16px;
+  top: 48px;
   right: 18px;
   display: flex;
   gap: 8px;
