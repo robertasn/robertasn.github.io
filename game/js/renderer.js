@@ -284,8 +284,9 @@
   }
 
   class Renderer {
-    constructor(canvas) {
+    constructor(canvas, opts) {
       this.canvas = canvas;
+      this.isMobile = !!(opts && opts.isMobile);
       const gl = canvas.getContext('webgl2', { antialias: true, powerPreference: 'high-performance' });
       if (!gl) throw new Error('WebGL2 is not supported on this system.');
       this.gl = gl;
@@ -321,8 +322,8 @@
         uCamUp: gl.getUniformLocation(this.particleProg, 'uCamUp'),
       };
 
-      // Shadow map FBO (2048x2048 depth texture)
-      this.shadowSize = 2048;
+      // Shadow map FBO (1024x1024 on mobile for silky 60fps, 2048x2048 on desktop)
+      this.shadowSize = this.isMobile ? 1024 : 2048;
       this.shadowTex = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, this.shadowSize, this.shadowSize, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
@@ -398,7 +399,8 @@
     }
 
     resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const maxDpr = this.isMobile ? 1.75 : 2;
+      const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
       const w = Math.max(1, Math.floor(this.canvas.clientWidth * dpr));
       const h = Math.max(1, Math.floor(this.canvas.clientHeight * dpr));
       if (this.canvas.width !== w || this.canvas.height !== h) {
@@ -444,7 +446,9 @@
       this.resize();
 
       const aspect = this.canvas.width / this.canvas.height;
-      Mat4.perspective(this.projMat, (52 * Math.PI) / 180, aspect, 0.15, 220);
+      // Wider vertical FOV in portrait mode so Pixel & Pocky stay comfortably framed on phones!
+      const fovDeg = aspect < 0.85 ? 64 : (aspect < 1.0 ? 58 : 52);
+      Mat4.perspective(this.projMat, (fovDeg * Math.PI) / 180, aspect, 0.15, 220);
       Mat4.lookAt(this.viewMat, cameraPos, cameraTarget, [0, 1, 0]);
       Mat4.multiply(this.vpMat, this.projMat, this.viewMat);
       invertMat4(this.invVpMat, this.vpMat);

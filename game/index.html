@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Pixel &amp; Pocky</title>
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <canvas id="game-canvas"></canvas>
-  <div id="version-badge">v0.3</div>
+  <div id="version-badge">v0.4</div>
 
   <div id="title-overlay">
     <div class="title-card">
@@ -23,7 +23,7 @@
         and after <strong>20s</strong> catch up to bite Pocky&rsquo;s ear!
       </p>
       <button id="play-btn" type="button">Start the Chase!</button>
-      <p class="mini-hint">WASD / Arrows to run &bull; Shift for zoomies &bull; Space to jump</p>
+      <p id="title-hint" class="mini-hint">WASD / Arrows to run &bull; Shift for zoomies &bull; Space to jump</p>
     </div>
   </div>
 
@@ -70,6 +70,17 @@
 
     <div id="bite-prompt" class="bite-prompt hidden">
       Press <kbd>B</kbd> / <kbd>Space</kbd> or run right in to <strong>BITE POCKY&rsquo;S EAR!</strong>
+    </div>
+
+    <div id="mobile-controls" class="mobile-controls">
+      <div id="mobile-joystick" class="joystick-base" aria-label="Move joystick">
+        <div class="joystick-ring"></div>
+        <div id="joystick-knob" class="joystick-knob"></div>
+      </div>
+      <div class="mobile-actions">
+        <button id="mobile-jump-btn" class="touch-btn touch-jump" type="button">JUMP</button>
+        <button id="mobile-bark-btn" class="touch-btn touch-bark" type="button">BARK</button>
+      </div>
     </div>
 
     <div id="controls-card">

@@ -467,12 +467,22 @@
         return;
       }
 
-      const moveForward = (input.forward ? 1 : 0) - (input.backward ? 1 : 0);
-      const moveRight = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-      const hasMove = moveForward !== 0 || moveRight !== 0;
+      let moveForward = (input.forward ? 1 : 0) - (input.backward ? 1 : 0);
+      let moveRight = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      let analogMag = 0;
 
-      this.isSprinting = hasMove && input.sprint;
-      const targetSpeed = hasMove ? (this.isSprinting ? this.maxSprintSpeed : this.maxWalkSpeed) : 0;
+      // Support smooth 360° analog virtual joystick on mobile (push to edge = automatic zoomies!)
+      if (input.joyActive && input.joyMag > 0.08) {
+        moveForward = -input.joyY;
+        moveRight = input.joyX;
+        analogMag = clamp(input.joyMag, 0, 1);
+      }
+
+      const hasMove = Math.abs(moveForward) > 0.05 || Math.abs(moveRight) > 0.05;
+      const autoSprint = analogMag > 0.72;
+      this.isSprinting = hasMove && (input.sprint || autoSprint);
+      const baseTarget = this.isSprinting ? this.maxSprintSpeed : this.maxWalkSpeed;
+      const targetSpeed = hasMove ? (analogMag > 0 ? lerp(2.0, baseTarget, analogMag) : baseTarget) : 0;
 
       // Compute camera-relative movement vector on XZ plane
       // Camera looks along (-sin(camYaw), 0, -cos(camYaw))

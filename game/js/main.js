@@ -10,6 +10,7 @@
   const hud = document.getElementById('hud');
   const playBtn = document.getElementById('play-btn');
   const replayBtn = document.getElementById('replay-btn');
+  const titleHintEl = document.getElementById('title-hint');
   const chasePhaseEl = document.getElementById('chase-phase');
   const chaseTimerEl = document.getElementById('chase-timer');
   const chaseDistEl = document.getElementById('chase-dist');
@@ -23,8 +24,28 @@
   const muteBtn = document.getElementById('mute-btn');
   const fsBtn = document.getElementById('fs-btn');
   const controlsCard = document.getElementById('controls-card');
+  const mobileJoystickEl = document.getElementById('mobile-joystick');
+  const joystickKnobEl = document.getElementById('joystick-knob');
+  const mobileJumpBtn = document.getElementById('mobile-jump-btn');
+  const mobileBarkBtn = document.getElementById('mobile-bark-btn');
 
-  const renderer = new window.Renderer(canvas);
+  // Detect mobile / touch devices automatically
+  const isMobile =
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+    (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+    ('ontouchstart' in window && Math.min(window.innerWidth, window.innerHeight) <= 920);
+
+  if (isMobile) {
+    document.body.classList.add('is-mobile');
+    if (titleHintEl) {
+      titleHintEl.textContent = 'Thumb stick to chase (push far for zoomies) • Drag screen to look';
+    }
+    if (!document.documentElement.requestFullscreen) {
+      fsBtn.classList.add('no-mobile-fs');
+    }
+  }
+
+  const renderer = new window.Renderer(canvas, { isMobile });
   const world = new window.ForestWorld(renderer);
   const pixel = new window.PixelDog(renderer);
   const pocky = new window.PockyDog(renderer);
@@ -69,6 +90,10 @@
     bitePressed: false,
     camLeft: false,
     camRight: false,
+    joyActive: false,
+    joyX: 0,
+    joyY: 0,
+    joyMag: 0,
   };
 
   // Dynamic gameplay particles
@@ -360,10 +385,150 @@
   }, { passive: true });
 
   canvas.addEventListener('dblclick', () => {
-    if (!playing || gameWon) return;
+    if (!playing || gameWon || isMobile) return;
     audio.init();
     pixel.triggerBark(audio, spawnParticles);
   });
+
+  // --- Mobile Multi-Touch Controls (Virtual Joystick + Buttons + Touch-Drag Look + Pinch Zoom) ---
+  let joyTouchId = null;
+  let camTouchId = null;
+  let camLastTouchX = 0;
+  let camLastTouchY = 0;
+  let pinchStartDist = 0;
+  let pinchStartTargetDist = 4.6;
+
+  function updateJoystickFromPoint(clientX, clientY) {
+    const rect = mobileJoystickEl.getBoundingClientRect();
+    const cx = rect.left + rect.width * 0.5;
+    const cy = rect.top + rect.height * 0.5;
+    const maxR = rect.width * 0.39;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxR) {
+      dx = (dx / dist) * maxR;
+      dy = (dy / dist) * maxR;
+    }
+    joystickKnobEl.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+    input.joyActive = true;
+    input.joyX = dx / maxR;
+    input.joyY = dy / maxR;
+    input.joyMag = clamp(dist / maxR, 0, 1);
+  }
+
+  function resetJoystick() {
+    joyTouchId = null;
+    input.joyActive = false;
+    input.joyX = 0;
+    input.joyY = 0;
+    input.joyMag = 0;
+    if (joystickKnobEl) joystickKnobEl.style.transform = 'translate(0px, 0px)';
+  }
+
+  if (mobileJoystickEl) {
+    mobileJoystickEl.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      audio.init();
+      if (joyTouchId !== null) return;
+      const t = e.changedTouches[0];
+      joyTouchId = t.identifier;
+      updateJoystickFromPoint(t.clientX, t.clientY);
+    }, { passive: false });
+
+    mobileJoystickEl.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        if (t.identifier === joyTouchId) {
+          updateJoystickFromPoint(t.clientX, t.clientY);
+        }
+      }
+    }, { passive: false });
+
+    const endJoy = (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === joyTouchId) resetJoystick();
+      }
+    };
+    mobileJoystickEl.addEventListener('touchend', endJoy);
+    mobileJoystickEl.addEventListener('touchcancel', endJoy);
+  }
+
+  if (mobileJumpBtn) {
+    mobileJumpBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (!playing || gameWon) return;
+      audio.init();
+      input.jumpPressed = true;
+    }, { passive: false });
+  }
+
+  if (mobileBarkBtn) {
+    mobileBarkBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (!playing || gameWon) return;
+      audio.init();
+      if (pocky.canBite && Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z) < 2.6) {
+        input.bitePressed = true;
+      } else {
+        pixel.triggerBark(audio, spawnParticles);
+      }
+    }, { passive: false });
+  }
+
+  // Canvas touch-drag to orbit camera & 2-finger pinch to zoom
+  canvas.addEventListener('touchstart', (e) => {
+    if (!playing || gameWon) return;
+    audio.init();
+    if (e.touches.length === 2 && joyTouchId === null) {
+      const a = e.touches[0], b = e.touches[1];
+      pinchStartDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      pinchStartTargetDist = cam.targetDist;
+      camTouchId = null;
+      return;
+    }
+    if (camTouchId === null) {
+      for (const t of e.changedTouches) {
+        if (t.identifier !== joyTouchId) {
+          camTouchId = t.identifier;
+          camLastTouchX = t.clientX;
+          camLastTouchY = t.clientY;
+          break;
+        }
+      }
+    }
+  }, { passive: true });
+
+  canvas.addEventListener('touchmove', (e) => {
+    if (!playing || gameWon) return;
+    e.preventDefault();
+    if (e.touches.length === 2 && joyTouchId === null && pinchStartDist > 0) {
+      const a = e.touches[0], b = e.touches[1];
+      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      cam.targetDist = clamp(pinchStartTargetDist * (pinchStartDist / Math.max(d, 20)), 2.8, 8.5);
+      return;
+    }
+    for (const t of e.changedTouches) {
+      if (t.identifier === camTouchId) {
+        const dx = t.clientX - camLastTouchX;
+        const dy = t.clientY - camLastTouchY;
+        camLastTouchX = t.clientX;
+        camLastTouchY = t.clientY;
+        cam.yaw -= dx * 0.0075;
+        cam.pitch = clamp(cam.pitch + dy * 0.0055, 0.08, 0.92);
+        cam.manualOrbitCooldown = 1.6;
+      }
+    }
+  }, { passive: false });
+
+  const endCamTouch = (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === camTouchId) camTouchId = null;
+    }
+    if (e.touches.length < 2) pinchStartDist = 0;
+  };
+  canvas.addEventListener('touchend', endCamTouch);
+  canvas.addEventListener('touchcancel', endCamTouch);
 
   // --- Main Animation Loop ---
   let lastTime = null;
@@ -396,9 +561,11 @@
       input.jumpPressed = false;
 
       // Keep camera gently following behind Pixel while running
-      if (!cam.dragging && cam.manualOrbitCooldown <= 0 && pixel.speed > 1.2 && !input.backward) {
+      const steeringLeftRight = input.left || input.right || (input.joyActive && Math.abs(input.joyX) > 0.25);
+      const backingUp = input.backward || (input.joyActive && input.joyY > 0.55);
+      if (!cam.dragging && camTouchId === null && cam.manualOrbitCooldown <= 0 && pixel.speed > 1.2 && !backingUp) {
         const behindPixelYaw = wrapAngle(pixel.yaw - Math.PI);
-        const turnAssist = (input.left || input.right) ? 1.55 : 0.75;
+        const turnAssist = steeringLeftRight ? 1.65 : 0.85;
         cam.yaw = dampAngle(cam.yaw, behindPixelYaw, turnAssist, dt);
       }
 
@@ -416,9 +583,18 @@
 
       // Check distance to Pocky for Ear-Bite finale!
       const distToPocky = Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z);
-      if (pocky.canBite && distToPocky < 2.4) {
+      const inBiteRange = pocky.canBite && distToPocky < 2.6;
+      if (mobileBarkBtn) {
+        mobileBarkBtn.classList.toggle('bite-ready', inBiteRange);
+        mobileBarkBtn.textContent = inBiteRange ? 'BITE\nEAR!' : 'BARK';
+      }
+      if (inBiteRange) {
+        if (isMobile) {
+          bitePromptEl.innerHTML = 'Tap <strong>BITE EAR!</strong> or run right in!';
+        }
         bitePromptEl.classList.remove('hidden');
         if (input.bitePressed || distToPocky < 1.25) {
+          resetJoystick();
           triggerEarBiteVictory();
         }
       } else {
@@ -495,27 +671,32 @@
       cam.targetDist = 3.1;
     }
 
-    // Smooth camera positioning & terrain collision clearance
+    // Smooth camera positioning & terrain collision clearance (adapts for portrait phones!)
+    const isPortrait = window.innerHeight > window.innerWidth;
+    const portraitExtraDist = (isPortrait && playing && !gameWon) ? 0.85 : (isPortrait && !playing ? 1.05 : 0);
     const sprintFovPull = (playing && !gameWon && pixel.isSprinting) ? 0.5 : 0;
-    cam.dist = damp(cam.dist, cam.targetDist + sprintFovPull, 6, dt);
+    cam.dist = damp(cam.dist, cam.targetDist + portraitExtraDist + sprintFovPull, 6, dt);
 
     let lookTargetX, lookTargetY, lookTargetZ;
     if (gameWon) {
-      // Frame the ear-chomping duo cleanly in the right half beside the victory card!
+      // Frame the ear-chomping duo cleanly (right half on desktop, upper half on portrait phones!)
       const earPt = pocky.getLeftEarTipWorldPos();
       const rightX = Math.cos(cam.yaw);
       const rightZ = -Math.sin(cam.yaw);
-      const cardOffset = victoryOverlay.classList.contains('hidden') ? 0 : -0.45;
-      lookTargetX = earPt[0] + rightX * cardOffset;
-      lookTargetY = earPt[1] - 0.04;
-      lookTargetZ = earPt[2] + rightZ * cardOffset;
+      const cardVisible = !victoryOverlay.classList.contains('hidden');
+      const cardOffsetX = (cardVisible && !isPortrait) ? -0.45 : 0;
+      const cardOffsetY = (cardVisible && isPortrait) ? -0.32 : -0.04;
+      lookTargetX = earPt[0] + rightX * cardOffsetX;
+      lookTargetY = earPt[1] + cardOffsetY;
+      lookTargetZ = earPt[2] + rightZ * cardOffsetX;
     } else {
       const rightX = Math.cos(cam.yaw);
       const rightZ = -Math.sin(cam.yaw);
-      const titleOffset = playing ? 0 : -0.58;
-      lookTargetX = pixel.pos.x + rightX * titleOffset;
-      lookTargetY = pixel.pos.y + 0.62;
-      lookTargetZ = pixel.pos.z + rightZ * titleOffset;
+      const titleOffsetX = (!playing && !isPortrait) ? -0.58 : 0;
+      const titleOffsetY = (!playing && isPortrait) ? 0.18 : 0.62;
+      lookTargetX = pixel.pos.x + rightX * titleOffsetX;
+      lookTargetY = pixel.pos.y + titleOffsetY;
+      lookTargetZ = pixel.pos.z + rightZ * titleOffsetX;
     }
 
     const horiz = Math.cos(cam.pitch) * cam.dist;
