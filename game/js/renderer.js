@@ -13,9 +13,10 @@
   uniform mat4 uLightVP;
   uniform mat4 uModel;
   uniform float uTime;
+  uniform float uFurMode;
   void main() {
     vec4 wp = uModel * vec4(aPos, 1.0);
-    if (aWind > 0.001) {
+    if (uFurMode < 0.5 && aWind > 0.001) {
       float wave = sin(uTime * 1.9 + wp.x * 0.45 + wp.z * 0.35) * 0.12 * aWind;
       float wave2 = cos(uTime * 2.7 + wp.z * 0.6) * 0.05 * aWind;
       wp.x += wave;
@@ -39,21 +40,25 @@
   uniform mat4 uModel;
   uniform mat4 uLightVP;
   uniform float uTime;
+  uniform float uFurMode;
 
   out vec3 vWorldPos;
+  out vec3 vLocalPos;
   out vec3 vNormal;
   out vec3 vColor;
   out vec4 vLightSpacePos;
 
   void main() {
     vec4 wp = uModel * vec4(aPos, 1.0);
-    if (aWind > 0.001) {
+    // Only apply wind sway to non-fur foliage (dogs use attribute 3 for volumetric fur length!)
+    if (uFurMode < 0.5 && aWind > 0.001) {
       float gust = sin(uTime * 1.9 + wp.x * 0.45 + wp.z * 0.35);
       float flutter = cos(uTime * 3.2 + wp.x * 1.1 - wp.z * 0.9);
       wp.x += (gust * 0.11 + flutter * 0.025) * aWind;
       wp.z += (cos(uTime * 1.6 + wp.z * 0.5) * 0.07) * aWind;
     }
     vWorldPos = wp.xyz;
+    vLocalPos = aPos;
     vNormal = normalize(mat3(uModel) * aNorm);
     vColor = aColor;
     vLightSpacePos = uLightVP * wp;
@@ -63,6 +68,7 @@
   const MAIN_FS = `#version 300 es
   precision highp float;
   in vec3 vWorldPos;
+  in vec3 vLocalPos;
   in vec3 vNormal;
   in vec3 vColor;
   in vec4 vLightSpacePos;
@@ -79,9 +85,35 @@
   uniform float uShininess;
   uniform float uSpecStrength;
   uniform float uRimStrength;
+  uniform float uFurMode;
   uniform vec3 uEmissive;
 
   out vec4 outColor;
+
+  float hash31(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return fract((p.x + p.y) * p.z);
+  }
+
+  float vnoise3(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float n000 = hash31(i);
+    float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+    float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+    float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+    float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+    float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+    float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+    float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+    return mix(
+      mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+      mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
+      f.z
+    );
+  }
 
   float calcShadow(vec4 lsPos, vec3 n, vec3 lDir) {
     vec3 proj = lsPos.xyz / lsPos.w;
@@ -114,25 +146,65 @@
     // Convert sRGB vertex albedo into linear space for rich, true-to-life lighting!
     vec3 albedo = pow(max(vColor, vec3(0.0)), vec3(2.2));
 
+    // Procedural per-pixel micro-fur synthesis for ultra-realistic Pixel & Pocky coats!
+    float specMod = 1.0;
+    float rimMod = 1.0;
+    if (uFurMode > 0.5) {
+      // Skip fur grain on very bright white teeth/eye-catchlights or very dark eyes
+      float lum = dot(vColor, vec3(0.299, 0.587, 0.114));
+      float isFur = smoothstep(0.08, 0.16, lum) * (1.0 - smoothstep(0.86, 0.94, lum));
+
+      if (uFurMode < 1.5) {
+        // Mode 1: PIXEL — Silky flowing long-haired chocolate dachshund strands!
+        vec3 strandP = vec3(vLocalPos.x * 58.0, vLocalPos.y * 42.0, vLocalPos.z * 16.0);
+        float s1 = vnoise3(strandP);
+        float s2 = vnoise3(strandP * 2.1 + vec3(5.2, 1.7, 3.4));
+        float silky = (s1 * 0.65 + s2 * 0.35);
+        albedo *= mix(1.0, 0.78 + silky * 0.44, isFur);
+        // Subtle anisotropic sheen along brushed fur strands (soft & silky, not plastic!)
+        specMod = mix(1.8, 0.55 + silky * 0.85, isFur);
+        rimMod = mix(1.0, 1.55, isFur);
+      } else {
+        // Mode 2: POCKY — Coarse wild-boar salt-and-pepper wire-haired agouti coat!
+        vec3 wireP = vec3(vLocalPos.x * 68.0, vLocalPos.y * 62.0, vLocalPos.z * 48.0);
+        float w1 = vnoise3(wireP);
+        float w2 = vnoise3(wireP * 2.4 + vec3(9.1, 4.3, 2.7));
+        float bristle = vnoise3(wireP * 4.5);
+        float agouti = w1 * 0.45 + w2 * 0.35 + bristle * 0.20;
+
+        // Detect grizzled grey-brown wild-boar torso vs warmer tan beard/chestnut ears
+        float sat = max(vColor.r, max(vColor.g, vColor.b)) - min(vColor.r, min(vColor.g, vColor.b));
+        float isWildBoar = (1.0 - smoothstep(0.14, 0.28, sat)) * isFur;
+
+        // Crisp salt-and-pepper wiry hair flecking on wild-boar back & sides!
+        vec3 saltTip = vec3(0.42, 0.38, 0.31);
+        vec3 darkRoot = albedo * 0.46;
+        vec3 pepperCoat = mix(darkRoot, mix(albedo * 1.35, saltTip, smoothstep(0.62, 0.84, agouti)), smoothstep(0.24, 0.78, agouti));
+        albedo = mix(albedo * (0.82 + agouti * 0.36), pepperCoat, isWildBoar * 0.88);
+        specMod = mix(1.5, 0.42, isFur);
+        rimMod = mix(1.0, 1.75, isFur);
+      }
+    }
+
     float ndl = max(dot(N, L), 0.0);
     // Warm wrap diffuse for soft natural fur & foliage shading
-    float wrapDiff = clamp((dot(N, L) + 0.25) / 1.25, 0.0, 1.0);
+    float wrapDiff = clamp((dot(N, L) + 0.30) / 1.30, 0.0, 1.0);
     float shadow = calcShadow(vLightSpacePos, N, L);
 
     // Hemisphere ambient (sky top + forest floor bounce)
     float hemi = N.y * 0.5 + 0.5;
-    vec3 ambient = mix(uGroundColor, uSkyColor, hemi) * 0.42;
+    vec3 ambient = mix(uGroundColor, uSkyColor, hemi) * 0.44;
 
     // Direct sun light
-    vec3 diffuse = uSunColor * (ndl * 1.15 + wrapDiff * 0.28) * (0.24 + 0.76 * shadow);
+    vec3 diffuse = uSunColor * (ndl * 1.12 + wrapDiff * 0.30) * (0.24 + 0.76 * shadow);
 
-    // Specular highlight (gives Pixel's glossy dark brown fur & nose life!)
-    float spec = pow(max(dot(N, H), 0.0), uShininess) * uSpecStrength * (0.25 + 0.75 * shadow);
+    // Specular highlight (soft silky coat sheen, glossy wet nose & bright eyes!)
+    float spec = pow(max(dot(N, H), 0.0), uShininess) * uSpecStrength * specMod * (0.25 + 0.75 * shadow);
     vec3 specular = uSunColor * spec;
 
-    // Golden-hour rim lighting on silhouette
-    float rim = pow(1.0 - max(dot(N, V), 0.0), 2.8) * uRimStrength;
-    vec3 rimCol = mix(uSkyColor, uSunColor, 0.65) * rim * (0.35 + 0.65 * max(dot(V, -L), 0.0));
+    // Velvety backlit fur rim lighting
+    float rim = pow(1.0 - max(dot(N, V), 0.0), 2.5) * uRimStrength * rimMod;
+    vec3 rimCol = mix(uSkyColor, uSunColor, 0.72) * rim * (0.45 + 0.55 * max(dot(V, -L), 0.0));
 
     vec3 color = albedo * (ambient + diffuse) + specular + rimCol + uEmissive;
 
@@ -145,6 +217,199 @@
     color = mix(color, fogCol, fogT);
 
     // Filmic ACES tone mapping & sRGB gamma encoding
+    color = (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14);
+    color = pow(clamp(color, 0.0, 1.0), vec3(1.0 / 2.2));
+    outColor = vec4(color, 1.0);
+  }`;
+
+  // --- 16-Layer Volumetric GPU Fur Shell Shaders (100% Full-Body Realistic Fur Coverage!) ---
+  const FUR_SHELL_VS = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec3 aPos;
+  layout(location=1) in vec3 aNorm;
+  layout(location=2) in vec3 aColor;
+  layout(location=3) in float aFurLen;
+
+  uniform mat4 uVP;
+  uniform mat4 uModel;
+  uniform mat4 uLightVP;
+  uniform float uShellH;     // 0..1 normalized shell height
+  uniform vec3 uCombDir;     // local-space hair combing direction (e.g. sleek backward & down)
+
+  out vec3 vWorldPos;
+  out vec3 vLocalPos;
+  out vec3 vNormal;
+  out vec3 vColor;
+  out float vFurLen;
+  out vec4 vLightSpacePos;
+
+  void main() {
+    // Hardware-cull separate disconnected hair-strand triangles (aFurLen == -1.0) instantly with zero seam stretching!
+    if (aFurLen < -0.5) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      vFurLen = 0.0;
+      return;
+    }
+    // Project out along normal + curved combed gravity droop so hair flows naturally!
+    vec3 n = normalize(aNorm);
+    float len = aFurLen;
+    vec3 comb = uCombDir;
+    vec3 disp = n * (len * uShellH) + comb * (len * uShellH * uShellH * 0.95);
+    vec3 localP = aPos + disp;
+    vec4 wp = uModel * vec4(localP, 1.0);
+    vWorldPos = wp.xyz;
+    // Keep vLocalPos anchored to the skin root so each hair fiber grows continuously across all 16 shells!
+    vLocalPos = aPos;
+    vNormal = normalize(mat3(uModel) * normalize(n + comb * (0.28 * uShellH)));
+    vColor = aColor;
+    vFurLen = len;
+    vLightSpacePos = uLightVP * wp;
+    gl_Position = uVP * wp;
+  }`;
+
+  const FUR_SHELL_FS = `#version 300 es
+  precision highp float;
+  in vec3 vWorldPos;
+  in vec3 vLocalPos;
+  in vec3 vNormal;
+  in vec3 vColor;
+  in float vFurLen;
+  in vec4 vLightSpacePos;
+
+  uniform sampler2D uShadowMap;
+  uniform vec3 uSunDir;
+  uniform vec3 uSunColor;
+  uniform vec3 uSkyColor;
+  uniform vec3 uGroundColor;
+  uniform vec3 uFogColor;
+  uniform vec3 uCameraPos;
+  uniform float uFogStart;
+  uniform float uFogEnd;
+  uniform float uShellH;
+  uniform float uFurMode;
+
+  out vec4 outColor;
+
+  float hash31(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return fract((p.x + p.y) * p.z);
+  }
+
+  float vnoise3(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float n000 = hash31(i);
+    float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+    float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+    float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+    float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+    float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+    float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+    float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+    return mix(
+      mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+      mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
+      f.z
+    );
+  }
+
+  float calcShadow(vec4 lsPos, vec3 n, vec3 lDir) {
+    vec3 proj = lsPos.xyz / lsPos.w;
+    proj = proj * 0.5 + 0.5;
+    if (proj.z > 1.0 || proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0) return 1.0;
+    float bias = max(0.003 * (1.0 - dot(n, lDir)), 0.0012);
+    float pcfDepth = texture(uShadowMap, proj.xy).r;
+    return (proj.z - bias <= pcfDepth) ? 1.0 : 0.35;
+  }
+
+  void main() {
+    // Skip non-furred surfaces (eyes, wet nose, pink collar, teeth, tongue, claws!)
+    if (vFurLen < 0.002) discard;
+
+    // Synthesize organic, jittered, non-grid micro-hair fibers anchored in object space!
+    vec3 freq = (uFurMode < 1.5) ? vec3(175.0, 145.0, 72.0) : vec3(135.0, 130.0, 118.0);
+    // Domain warp breaks up any regular XYZ grid so fur looks 100% natural & brushed!
+    vec3 warp = vec3(
+      vnoise3(vLocalPos * 24.0 + vec3(1.3, 4.7, 2.1)),
+      vnoise3(vLocalPos * 24.0 + vec3(8.2, 2.5, 6.4)),
+      vnoise3(vLocalPos * 24.0 + vec3(3.9, 9.1, 5.2))
+    ) * 1.85;
+    vec3 curl = vec3(
+      sin(vLocalPos.z * 34.0 + uShellH * 3.2),
+      cos(vLocalPos.x * 34.0 - uShellH * 2.8),
+      sin(vLocalPos.y * 30.0 + uShellH * 2.4)
+    ) * ((uFurMode < 1.5) ? 0.55 : 0.95) * uShellH;
+
+    vec3 sp = vLocalPos * freq + warp + curl;
+    vec3 cell = floor(sp);
+    vec3 local = fract(sp) - 0.5;
+
+    // Organic per-fiber jittered offset + height (completely eliminates grid dots!)
+    float rnd  = hash31(cell);
+    float rnd2 = hash31(cell + vec3(17.3, 41.7, 9.1));
+    vec3 jitter = vec3(
+      hash31(cell + vec3(3.1, 1.7, 5.3)),
+      hash31(cell + vec3(9.4, 6.2, 2.8)),
+      hash31(cell + vec3(4.8, 8.9, 7.1))
+    ) - 0.5;
+    float maxH = mix(0.32, 1.0, rnd);
+    float distToStrand = length(local - jitter * 0.52) * 2.0;
+
+    // Taper radius smoothly toward hair tip; plush dense undercoat at base, soft wispy tips outside!
+    float thickness = (1.0 - (uShellH / maxH)) * ((uFurMode < 1.5) ? 0.98 : 0.92);
+    if (uShellH > maxH || distToStrand > thickness) discard;
+
+    // Linear sRGB albedo + realistic root-to-tip self-shadowing AO + agouti/silky banding!
+    vec3 albedo = pow(max(vColor, vec3(0.0)), vec3(2.2));
+    float rootAO = mix(0.36, 1.18, pow(uShellH, 0.62));
+
+    if (uFurMode < 1.5) {
+      // Pixel: rich glossy dark-chocolate roots -> warm mahogany silky sheen tips
+      float strandVar = 0.82 + rnd2 * 0.36;
+      albedo *= strandVar * mix(vec3(0.88, 0.84, 0.82), vec3(1.16, 1.06, 0.96), uShellH);
+    } else {
+      // Pocky: authentic wild-boar agouti salt-and-pepper banding along every wiry hair!
+      float sat = max(vColor.r, max(vColor.g, vColor.b)) - min(vColor.r, min(vColor.g, vColor.b));
+      float isWildBoar = 1.0 - smoothstep(0.14, 0.28, sat);
+      vec3 darkBase = albedo * 0.48;
+      vec3 midWarm  = albedo * (0.95 + rnd2 * 0.4);
+      vec3 silverTip = mix(vec3(0.55, 0.50, 0.40), vec3(0.16, 0.14, 0.12), step(0.56, rnd2));
+      vec3 agoutiCol = (uShellH < 0.55)
+        ? mix(darkBase, midWarm, uShellH / 0.55)
+        : mix(midWarm, silverTip, (uShellH - 0.55) / 0.45);
+      albedo = mix(albedo * (0.85 + rnd2 * 0.34), agoutiCol, isWildBoar * 0.92);
+    }
+
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(uSunDir);
+    vec3 V = normalize(uCameraPos - vWorldPos);
+    vec3 H = normalize(L + V);
+
+    float ndl = max(dot(N, L), 0.0);
+    float wrapDiff = clamp((dot(N, L) + 0.36) / 1.36, 0.0, 1.0);
+    float shadow = calcShadow(vLightSpacePos, N, L);
+
+    float hemi = N.y * 0.5 + 0.5;
+    vec3 ambient = mix(uGroundColor, uSkyColor, hemi) * 0.46;
+    vec3 diffuse = uSunColor * (ndl * 1.05 + wrapDiff * 0.35) * (0.30 + 0.70 * shadow);
+
+    // Soft velvety hair-tip sheen & golden backlit rim!
+    float spec = pow(max(dot(N, H), 0.0), (uFurMode < 1.5) ? 18.0 : 10.0)
+               * ((uFurMode < 1.5) ? 0.14 : 0.06) * uShellH * (0.3 + 0.7 * shadow);
+    float rim = pow(1.0 - max(dot(N, V), 0.0), 2.2) * 0.32 * uShellH;
+    vec3 rimCol = mix(uSkyColor, uSunColor, 0.78) * rim;
+
+    vec3 color = albedo * rootAO * (ambient + diffuse) + uSunColor * spec + rimCol;
+
+    // Distance fog
+    float dist = length(uCameraPos - vWorldPos);
+    float fogT = clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
+    fogT = fogT * fogT * (3.0 - 2.0 * fogT);
+    color = mix(color, uFogColor, fogT);
+
+    // Filmic ACES tonemap + sRGB encode
     color = (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14);
     color = pow(clamp(color, 0.0, 1.0), vec3(1.0 / 2.2));
     outColor = vec4(color, 1.0);
@@ -293,6 +558,7 @@
 
       this.shadowProg = createProgram(gl, SHADOW_VS, SHADOW_FS);
       this.mainProg = createProgram(gl, MAIN_VS, MAIN_FS);
+      this.furProg = createProgram(gl, FUR_SHELL_VS, FUR_SHELL_FS);
       this.skyProg = createProgram(gl, SKY_VS, SKY_FS);
       this.particleProg = createProgram(gl, PARTICLE_VS, PARTICLE_FS);
 
@@ -300,13 +566,23 @@
         uLightVP: gl.getUniformLocation(this.shadowProg, 'uLightVP'),
         uModel: gl.getUniformLocation(this.shadowProg, 'uModel'),
         uTime: gl.getUniformLocation(this.shadowProg, 'uTime'),
+        uFurMode: gl.getUniformLocation(this.shadowProg, 'uFurMode'),
       };
+
+      this.furLoc = {};
+      for (const name of [
+        'uVP','uModel','uLightVP','uShellH','uCombDir','uShadowMap',
+        'uSunDir','uSunColor','uSkyColor','uGroundColor','uFogColor',
+        'uCameraPos','uFogStart','uFogEnd','uFurMode'
+      ]) {
+        this.furLoc[name] = gl.getUniformLocation(this.furProg, name);
+      }
 
       this.mainLoc = {};
       for (const name of [
         'uVP','uModel','uLightVP','uTime','uShadowMap','uSunDir','uSunColor',
         'uSkyColor','uGroundColor','uFogColor','uCameraPos','uFogStart','uFogEnd',
-        'uShininess','uSpecStrength','uRimStrength','uEmissive'
+        'uShininess','uSpecStrength','uRimStrength','uFurMode','uEmissive'
       ]) {
         this.mainLoc[name] = gl.getUniformLocation(this.mainProg, name);
       }
@@ -481,6 +757,7 @@
       for (const item of drawList) {
         if (item.castShadow === false) continue;
         gl.uniformMatrix4fv(this.shadowLoc.uModel, false, item.model || this.identityMat);
+        gl.uniform1f(this.shadowLoc.uFurMode, item.furMode ?? 0.0);
         gl.bindVertexArray(item.mesh.vao);
         gl.drawElements(gl.TRIANGLES, item.mesh.count, item.mesh.glIndexType, 0);
       }
@@ -516,12 +793,45 @@
         gl.uniform1f(this.mainLoc.uShininess, item.shininess ?? 24.0);
         gl.uniform1f(this.mainLoc.uSpecStrength, item.specStrength ?? 0.08);
         gl.uniform1f(this.mainLoc.uRimStrength, item.rimStrength ?? 0.12);
+        gl.uniform1f(this.mainLoc.uFurMode, item.furMode ?? 0.0);
         const em = item.emissive || [0, 0, 0];
         gl.uniform3f(this.mainLoc.uEmissive, em[0], em[1], em[2]);
 
         gl.bindVertexArray(item.mesh.vao);
         gl.drawElements(gl.TRIANGLES, item.mesh.count, item.mesh.glIndexType, 0);
       }
+
+      // --- Pass 2B: 16-Layer Volumetric GPU Fur Shells (100% Full-Body Realistic Fur!) ---
+      const shellCount = this.isMobile ? 10 : 16;
+      gl.useProgram(this.furProg);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
+      gl.uniform1i(this.furLoc.uShadowMap, 0);
+      gl.uniformMatrix4fv(this.furLoc.uVP, false, this.vpMat);
+      gl.uniformMatrix4fv(this.furLoc.uLightVP, false, this.lightVP);
+      gl.uniform3fv(this.furLoc.uSunDir, this.sunDir);
+      gl.uniform3fv(this.furLoc.uSunColor, this.sunColor);
+      gl.uniform3fv(this.furLoc.uSkyColor, this.skyColor);
+      gl.uniform3fv(this.furLoc.uGroundColor, this.groundColor);
+      gl.uniform3fv(this.furLoc.uFogColor, this.fogColor);
+      gl.uniform3fv(this.furLoc.uCameraPos, cameraPos);
+      gl.uniform1f(this.furLoc.uFogStart, 38.0);
+      gl.uniform1f(this.furLoc.uFogEnd, 132.0);
+      gl.disable(gl.CULL_FACE);
+
+      for (const item of drawList) {
+        if (!item.furShells) continue;
+        gl.uniformMatrix4fv(this.furLoc.uModel, false, item.model || this.identityMat);
+        gl.uniform1f(this.furLoc.uFurMode, item.furMode ?? 1.0);
+        const comb = item.combDir || [0, -0.35, -0.60];
+        gl.uniform3f(this.furLoc.uCombDir, comb[0], comb[1], comb[2]);
+        gl.bindVertexArray(item.mesh.vao);
+        for (let s = 1; s <= shellCount; s++) {
+          gl.uniform1f(this.furLoc.uShellH, s / shellCount);
+          gl.drawElements(gl.TRIANGLES, item.mesh.count, item.mesh.glIndexType, 0);
+        }
+      }
+      gl.enable(gl.CULL_FACE);
 
       // --- Pass 3: Sky Dome (depth test LEQUAL so it fills background cleanly) ---
       gl.depthFunc(gl.LEQUAL);

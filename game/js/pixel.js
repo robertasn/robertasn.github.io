@@ -3,195 +3,368 @@
   'use strict';
 
   const {
-    clamp, lerp, damp, dampAngle, hex, mixColor, tintColor, Mat4
+    clamp, lerp, damp, dampAngle, hex, mixColor, tintColor, Mat4, createRng
   } = global.Math3D;
   const MB = global.MeshBuilder;
 
-  // Pixel's coat palette sampled from the attached photo (tuned for rich linear-space shading)
-  const COL_CHOC_DEEP   = hex('#382014'); // rich glossy dark chocolate back/crown
-  const COL_CHOC_MID    = hex('#4E2F1E'); // warm silky dark chocolate coat
-  const COL_CHOC_WARM   = hex('#6E442A'); // warm mahogany feathered highlights
-  const COL_FEATHER_TIP = hex('#94633B'); // silky golden-brown feathering tips
-  const COL_TAN         = hex('#BA7E47'); // dachshund tan markings (paws, muzzle, brows)
-  const COL_TAN_LIGHT   = hex('#CE945C'); // warm highlight tan
-  const COL_NOSE        = hex('#875248'); // signature dusty rose / liver chocolate-dog nose
-  const COL_EYE         = hex('#150A06'); // soulful dark espresso eye
-  const COL_EYE_SPARK   = hex('#FFFFFF'); // bright catchlight
+  // Pixel's coat palette carefully matched from all 5 reference photos
+  const COL_CHOC_DEEP   = hex('#2B160B'); // glossy dark espresso-chocolate spine & skull
+  const COL_CHOC_MID    = hex('#472716'); // rich warm chocolate silky coat
+  const COL_CHOC_WARM   = hex('#6C4126'); // warm chestnut-chocolate sheen & feathering
+  const COL_FEATHER_TIP = hex('#96663D'); // silky golden-cinnamon feathered ear/tail tips
+  const COL_TAN         = hex('#B67B44'); // warm dachshund tan (paws, muzzle, brows, chest)
+  const COL_TAN_LIGHT   = hex('#CE955C'); // soft highlight tan
+  const COL_NOSE        = hex('#7D4B43'); // signature liver / dusty-rose chocolate-dog nose
+  const COL_NOSTRIL     = hex('#351A16'); // dark canine nostrils
+  const COL_EYE_IRIS    = hex('#4F2B13'); // soulful warm dark-amber eye iris
+  const COL_EYE_PUPIL   = hex('#0B0604'); // deep glossy pupil
+  const COL_EYE_SPARK   = hex('#FFFFFF'); // pinpoint catchlight
   const COL_TEETH       = hex('#FFFDF6'); // crisp cute little white teeth
-  const COL_MOUTH_DARK  = hex('#5E242B'); // warm inner mouth roof
+  const COL_MOUTH_DARK  = hex('#5C2229'); // warm inner mouth roof
   const COL_TONGUE      = hex('#E87482'); // happy pink tongue
-  const COL_COLLAR_PINK = hex('#E24C8B'); // Pixel's bright pink collar from the photo!
-  const COL_COLLAR_TAG  = hex('#2B3A4A'); // little dark blue-grey ID tag
+  const COL_COLLAR_PINK = hex('#DF4A88'); // Pixel's bright hot-pink Ruffwear collar
+  const COL_COLLAR_LBL  = hex('#1D1E22'); // black Ruffwear label patch
+  const COL_COLLAR_MTL  = hex('#B8BDC4'); // metallic buckle / ring
+  const COL_COLLAR_TAG  = hex('#2B3A4A'); // round dark slate-blue ID tag
+  const COL_CLAW        = hex('#352117'); // tiny dark claws on sculpted paws
 
+  // High-resolution Catmull-Rom anatomical dachshund body + ~420 fine sculpted silky fur strands!
   function buildTorsoMesh() {
     const parts = [];
+    const rng = createRng(1001);
 
-    // Main long sleek dachshund barrel torso (along Z, low-rider height y = 0.37)
-    const barrel = MB.capsule(0.172, 0.74, 18, 8, (nx, ny, nz, x, y, z) => {
-      // Glossy dark chocolate back, silky warm chocolate flanks, caramel-tan chest bib
-      let c = mixColor(COL_CHOC_MID, COL_CHOC_DEEP, clamp(ny * 0.65 + 0.45, 0, 1));
-      if (z > 0.24 && ny < 0.25) {
-        const t = clamp((z - 0.24) * 3.8, 0, 1) * clamp((0.25 - ny) * 2.2, 0, 1);
-        c = mixColor(c, COL_TAN, t * 0.72);
+    const bodyRings = [
+      { cz: -0.575, cy: 0.405, rx: 0.032, ry: 0.032 },
+      { cz: -0.520, cy: 0.400, rx: 0.108, ry: 0.106 },
+      { cz: -0.415, cy: 0.392, rx: 0.156, ry: 0.150 }, // rounded muscular rump
+      { cz: -0.260, cy: 0.396, rx: 0.142, ry: 0.132 }, // anatomical loin/waist tuck
+      { cz: -0.070, cy: 0.382, rx: 0.156, ry: 0.154 }, // long sleek dachshund ribcage
+      { cz:  0.140, cy: 0.365, rx: 0.166, ry: 0.172 }, // deep barrel chest
+      { cz:  0.320, cy: 0.354, rx: 0.158, ry: 0.178 }, // prominent dachshund chest keel
+      { cz:  0.460, cy: 0.372, rx: 0.118, ry: 0.144 }, // sternum curving into throat
+      { cz:  0.545, cy: 0.405, rx: 0.048, ry: 0.064 },
+    ];
+
+    const body = MB.smoothLoft(bodyRings, 36, 4, (nx, ny, nz, x, y, z) => {
+      let c = mixColor(COL_CHOC_MID, COL_CHOC_DEEP, clamp(ny * 0.65 + 0.42, 0, 1));
+      if (ny < -0.22) {
+        c = mixColor(c, COL_CHOC_WARM, clamp((-ny - 0.22) * 1.45, 0, 1) * 0.62);
       }
-      if (ny < -0.4) {
-        c = mixColor(c, COL_CHOC_WARM, clamp((-ny - 0.4) * 1.7, 0, 1) * 0.55);
+      if (z > 0.25 && ny < 0.15 && Math.abs(nx) < 0.72) {
+        const t = clamp((z - 0.25) * 3.4, 0, 1) * clamp((0.15 - ny) * 1.8, 0, 1);
+        c = mixColor(c, COL_TAN, t * 0.50);
       }
-      return c;
-    }, 'z');
-    const mBarrel = Mat4.create();
-    Mat4.translate(mBarrel, mBarrel, 0, 0.37, -0.02);
-    Mat4.scale(mBarrel, mBarrel, 0.96, 0.92, 1.04);
-    MB.transform(barrel, mBarrel);
-    parts.push(barrel);
-
-    // Smooth continuous silky long-haired coat drape along lower torso (sleek, never bumpy!)
-    const coatSkirt = MB.capsule(0.145, 0.68, 16, 6, (nx, ny, nz) =>
-      mixColor(COL_CHOC_WARM, COL_CHOC_MID, clamp(ny * 0.6 + 0.55, 0, 1))
-    , 'z');
-    const mSkirt = Mat4.create();
-    Mat4.translate(mSkirt, mSkirt, 0, 0.31, -0.04);
-    Mat4.scale(mSkirt, mSkirt, 1.02, 0.72, 1.0);
-    MB.transform(coatSkirt, mSkirt);
-    parts.push(coatSkirt);
-
-    // Prominent rounded dachshund chest keel
-    const chest = MB.ellipsoid(0.168, 0.172, 0.22, 16, 10, (nx, ny, nz) => {
-      let c = mixColor(COL_CHOC_MID, COL_CHOC_DEEP, clamp(ny * 0.5 + 0.5, 0, 1));
-      if (nz > 0.15 && ny < 0.35) {
-        const tanAmt = clamp((nz - 0.15) * 1.8, 0, 1) * clamp(1 - Math.abs(nx) * 1.35, 0, 1);
-        c = mixColor(c, COL_TAN, tanAmt * 0.68);
+      if (z < -0.40 && ny < 0.10) {
+        c = mixColor(c, COL_FEATHER_TIP, clamp((-z - 0.40) * 4.5, 0, 1) * 0.45);
       }
       return c;
+    }, {
+      furFn: (nx, ny, nz, x, y, z) => {
+        // 100% full-body silky coat thickness: plush along spine/shoulders, longer curtain along belly & haunches!
+        let len = 0.028;
+        if (ny < -0.15) len += clamp((-ny - 0.15) * 0.022, 0, 0.018);
+        if (z < -0.32) len += 0.010;
+        if (z > 0.30 && ny < 0.1) len += 0.010;
+        return len;
+      },
+      sculptFn: (v, th) => {
+        // Subtle anatomical spine furrow along top + soft lower belly drape
+        const topDip = Math.sin(th) > 0.75 ? (1 - 0.035 * Math.pow((Math.sin(th) - 0.75) * 4, 2)) : 1;
+        const bellyDrape = Math.sin(th) < -0.35 ? (1 + 0.04 * (-Math.sin(th) - 0.35)) : 1;
+        return topDip * bellyDrape;
+      }
     });
-    MB.translate(chest, 0, 0.35, 0.32);
-    parts.push(chest);
+    parts.push(body);
 
-    // Rounded rump / hindquarters with smooth feathered haunches
-    const rump = MB.ellipsoid(0.168, 0.162, 0.22, 16, 10, (nx, ny, nz) => {
-      let c = mixColor(COL_CHOC_MID, COL_CHOC_DEEP, clamp(ny * 0.6 + 0.45, 0, 1));
-      if (nz < -0.25 && ny < 0.15) {
-        c = mixColor(c, COL_FEATHER_TIP, clamp((-nz - 0.25) * 1.5, 0, 1) * 0.55);
-      }
+    // Graceful Catmull-Rom arching dachshund neck (zero fur directly under pink collar band so collar stays crisp!)
+    const neckRings = [
+      { cx: 0, cy: 0.365, cz: 0.355, rx: 0.134, rz: 0.158 },
+      { cx: 0, cy: 0.445, cz: 0.405, rx: 0.120, rz: 0.138 },
+      { cx: 0, cy: 0.540, cz: 0.468, rx: 0.104, rz: 0.114 },
+      { cx: 0, cy: 0.648, cz: 0.530, rx: 0.090, rz: 0.098 },
+    ];
+    const neck = MB.smoothLoft(neckRings, 32, 4, (nx, ny, nz) => {
+      let c = mixColor(COL_CHOC_MID, COL_CHOC_DEEP, clamp(-nz * 0.45 + 0.48, 0, 1));
+      if (nz > 0.2) c = mixColor(c, COL_CHOC_WARM, clamp((nz - 0.2) * 1.4, 0, 1) * 0.55);
       return c;
+    }, {
+      axis: 'y',
+      furFn: (nx, ny, nz, x, y) => (y > 0.465 && y < 0.545) ? 0.004 : 0.024
     });
-    MB.translate(rump, 0, 0.37, -0.37);
-    parts.push(rump);
-
-    // Soft silky haunch feathering sweeping back behind hind thighs (just like the photo!)
-    for (const side of [-1, 1]) {
-      const haunchPlume = MB.ellipsoid(0.055, 0.088, 0.12, 10, 7, (nx, ny) =>
-        mixColor(COL_FEATHER_TIP, COL_CHOC_WARM, clamp(ny * 0.5 + 0.55, 0, 1))
-      );
-      MB.rotateX(haunchPlume, 0.32);
-      MB.translate(haunchPlume, side * 0.12, 0.27, -0.46);
-      parts.push(haunchPlume);
-    }
-
-    // Graceful arching neck rising to head pivot
-    const neck = MB.capsule(0.118, 0.25, 14, 6, (nx, ny, nz) => {
-      let c = mixColor(COL_CHOC_MID, COL_CHOC_DEEP, clamp(-nz * 0.4 + 0.5, 0, 1));
-      if (nz > 0.35) {
-        c = mixColor(c, COL_CHOC_WARM, clamp((nz - 0.35) * 1.4, 0, 1) * 0.52);
-      }
-      return c;
-    }, 'y');
-    MB.rotateX(neck, 0.40);
-    MB.translate(neck, 0, 0.51, 0.46);
     parts.push(neck);
 
-    // Soft silky chest ruff beneath throat
-    const ruff = MB.ellipsoid(0.115, 0.115, 0.105, 12, 8, (nx, ny) =>
-      mixColor(COL_CHOC_WARM, COL_CHOC_MID, clamp(ny * 0.5 + 0.5, 0, 1))
-    );
-    MB.translate(ruff, 0, 0.39, 0.47);
-    parts.push(ruff);
+    // Grow ~420 fine glossy silky long-haired coat strands (chest mane, flank curtain, thigh pantaloons, neck ruff!)
+    const fur = MB.createHairBatch();
 
-    // Pixel's signature bright pink collar + cute round ID tag!
-    const collar = MB.cylinder(0.128, 0.124, 0.052, 16, COL_COLLAR_PINK, tintColor(COL_COLLAR_PINK, 1.12), 0, 0, true, true);
-    MB.translate(collar, 0, -0.026, 0);
-    MB.rotateX(collar, 0.44);
-    MB.translate(collar, 0, 0.495, 0.455);
+    // 1. Silky chest mane cascading softly beneath Pixel's pink collar (~120 plush strands)
+    for (let i = 0; i < 120; i++) {
+      const ang = (rng() - 0.5) * 1.45;
+      const h = rng();
+      const y0 = lerp(0.33, 0.47, h);
+      const rad = lerp(0.140, 0.106, h);
+      const z0 = lerp(0.42, 0.49, h) + Math.cos(ang) * rad * 0.30;
+      const x0 = Math.sin(ang) * rad * 0.78;
+      const len = 0.055 + rng() * 0.042;
+      const cRoot = mixColor(COL_CHOC_DEEP, COL_CHOC_MID, rng() * 0.7);
+      const cTip = mixColor(COL_CHOC_MID, COL_CHOC_WARM, 0.3 + rng() * 0.6);
+      MB.addHairStrand(
+        fur, x0, y0, z0,
+        Math.sin(ang) * 0.16, -0.92, 0.12 - h * 0.15,
+        Math.sin(ang) * 0.008, -0.015, -0.022,
+        len, 0.014 + rng() * 0.006, 0.006,
+        cRoot, cRoot, cTip
+      );
+    }
+
+    // 2. Sleek silky lower-flank & belly coat hugging Pixel's sleek body (~180 soft swept-back strands)
+    for (let i = 0; i < 180; i++) {
+      const side = (i % 2 === 0) ? 1 : -1;
+      const z0 = lerp(-0.44, 0.32, rng());
+      const band = rng();
+      const y0 = lerp(0.25, 0.36, band);
+      const widthAtZ = 0.144 + 0.016 * Math.cos((z0 - 0.08) * 3.5);
+      const x0 = side * (widthAtZ * (0.82 + band * 0.15));
+      const len = 0.042 + rng() * 0.036;
+      const cRoot = mixColor(COL_CHOC_DEEP, COL_CHOC_MID, 0.3 + rng() * 0.4);
+      const cTip = mixColor(COL_CHOC_MID, COL_CHOC_WARM, 0.35 + rng() * 0.5);
+      MB.addHairStrand(
+        fur, x0, y0, z0,
+        side * 0.04, -0.45 - rng() * 0.22, -0.84 - rng() * 0.15,
+        -side * 0.006, -0.016, -0.018,
+        len, 0.014 + rng() * 0.006, 0.0055,
+        cRoot, mixColor(cRoot, cTip, 0.5), cTip
+      );
+    }
+
+    // 3. Plush feathered thigh pantaloons sweeping softly behind hindquarters (~120 strands)
+    for (let i = 0; i < 120; i++) {
+      const side = (i % 2 === 0) ? 1 : -1;
+      const u = rng();
+      const y0 = lerp(0.26, 0.41, u);
+      const z0 = lerp(-0.52, -0.35, rng());
+      const x0 = side * lerp(0.06, 0.140, Math.sqrt(rng()));
+      const len = 0.055 + rng() * 0.050;
+      const cRoot = mixColor(COL_CHOC_MID, COL_CHOC_WARM, rng() * 0.55);
+      const cTip = mixColor(COL_CHOC_WARM, COL_FEATHER_TIP, 0.35 + rng() * 0.55);
+      MB.addHairStrand(
+        fur, x0, y0, z0,
+        side * 0.08, -0.62 - rng() * 0.24, -0.74 - rng() * 0.20,
+        -side * 0.005, -0.022, -0.018,
+        len, 0.014 + rng() * 0.006, 0.006,
+        cRoot, mixColor(cRoot, cTip, 0.5), cTip
+      );
+    }
+
+    // 4. Soft neck/withers fur layering around the collar (~55 strands)
+    for (let i = 0; i < 55; i++) {
+      const a = rng() * Math.PI * 2;
+      const y0 = lerp(0.48, 0.60, rng());
+      const r = lerp(0.114, 0.098, (y0 - 0.48) / 0.12);
+      const zc = lerp(0.43, 0.50, (y0 - 0.48) / 0.12);
+      const x0 = Math.cos(a) * r;
+      const z0 = zc + Math.sin(a) * r;
+      MB.addHairStrand(
+        fur, x0, y0, z0,
+        Math.cos(a) * 0.22, -0.82, Math.sin(a) * 0.22 - 0.35,
+        0, -0.02, -0.015,
+        0.055 + rng() * 0.035, 0.010, 0.005,
+        COL_CHOC_DEEP, COL_CHOC_MID, COL_CHOC_WARM
+      );
+    }
+    parts.push(fur);
+
+    // Detailed Hot-Pink Ruffwear Collar (contoured nylon strap + buckle + black Ruffwear patch + metal ring + blue ID tag!)
+    const collar = MB.cylinder(0.117, 0.113, 0.048, 32, COL_COLLAR_PINK, tintColor(COL_COLLAR_PINK, 1.12), 0, 0, true, true);
+    MB.translate(collar, 0, -0.024, 0);
+    MB.rotateX(collar, 0.46);
+    MB.translate(collar, 0, 0.506, 0.448);
     parts.push(collar);
 
-    const tag = MB.ellipsoid(0.028, 0.028, 0.010, 10, 6, COL_COLLAR_TAG);
-    MB.translate(tag, 0, 0.435, 0.575);
+    const patch = MB.box(0.058, 0.022, 0.010, COL_COLLAR_LBL);
+    MB.rotateY(patch, 0.38);
+    MB.translate(patch, 0.044, 0.494, 0.556);
+    parts.push(patch);
+
+    const buckle = MB.box(0.026, 0.050, 0.014, COL_COLLAR_MTL);
+    MB.rotateY(buckle, -0.35);
+    MB.translate(buckle, -0.042, 0.494, 0.554);
+    parts.push(buckle);
+
+    const tagRing = MB.cylinder(0.008, 0.008, 0.016, 10, COL_COLLAR_MTL, COL_COLLAR_MTL, 0, 0, true, true);
+    MB.translate(tagRing, 0, 0.456, 0.558);
+    parts.push(tagRing);
+
+    const tag = MB.ellipsoid(0.026, 0.026, 0.007, 16, 10, COL_COLLAR_TAG);
+    MB.translate(tag, 0, 0.432, 0.562);
     parts.push(tag);
 
     return MB.merge(parts);
   }
 
+  // High-resolution anatomically sculpted dachshund head (36x33 spline mesh + brow hairs + fine whiskers!)
   function buildHeadMesh() {
     const parts = [];
+    const rng = createRng(1002);
 
-    // Refined domed dachshund skull
-    const skull = MB.ellipsoid(0.155, 0.142, 0.18, 16, 12, (nx, ny, nz) => {
+    const headRings = [
+      { cz: -0.145, cy: 0.026, rx: 0.042, ry: 0.044 },
+      { cz: -0.095, cy: 0.034, rx: 0.110, ry: 0.114 },
+      { cz: -0.015, cy: 0.036, rx: 0.130, ry: 0.125 }, // sleek narrow cranium
+      { cz:  0.068, cy: 0.028, rx: 0.120, ry: 0.110 }, // brow / orbital arch
+      { cz:  0.126, cy: 0.004, rx: 0.088, ry: 0.080 }, // refined dachshund nasal stop
+      { cz:  0.200, cy: -0.014, rx: 0.072, ry: 0.062 }, // slender elongated muzzle
+      { cz:  0.282, cy: -0.022, rx: 0.060, ry: 0.050 },
+      { cz:  0.342, cy: -0.022, rx: 0.044, ry: 0.038 },
+      { cz:  0.365, cy: -0.020, rx: 0.018, ry: 0.016 },
+    ];
+
+    const head = MB.smoothLoft(headRings, 36, 4, (nx, ny, nz, x, y, z) => {
       let c = mixColor(COL_CHOC_MID, COL_CHOC_DEEP, clamp(ny * 0.55 + 0.45, 0, 1));
-      if (ny < 0.0 && Math.abs(nx) > 0.45 && nz > -0.1) {
-        c = mixColor(c, COL_TAN, clamp((Math.abs(nx) - 0.45) * 1.4, 0, 1) * 0.58);
+      // Warm caramel-tan cheeks & muzzle sides preserving the dark chocolate bridge down the top of the snout!
+      if (z > 0.11 && ny < 0.32) {
+        const sideFactor = clamp(Math.abs(nx) * 1.45 - 0.10, 0, 1) + clamp((-ny) * 1.2, 0, 0.8);
+        const bridgeMask = 1 - clamp((ny - 0.12) * 3.0, 0, 1) * clamp(1 - Math.abs(nx) * 2.0, 0, 1);
+        const muzzleBlend = clamp((z - 0.11) * 5.0, 0, 1) * clamp(sideFactor, 0, 1) * bridgeMask;
+        c = mixColor(c, mixColor(COL_TAN, COL_TAN_LIGHT, clamp((z - 0.18) * 3.5, 0, 1)), muzzleBlend * 0.88);
+      }
+      if (z > 0.01 && z <= 0.14 && ny < -0.1 && Math.abs(nx) > 0.45) {
+        c = mixColor(c, COL_TAN, clamp((-ny - 0.1) * 1.5, 0, 1) * 0.54);
       }
       return c;
+    }, {
+      furFn: (nx, ny, nz, x, y, z) => {
+        // Short soft velvety fur on muzzle, plush soft fur on skull & cheeks, zero right over eyes/nose tip!
+        if (z > 0.325) return 0.0;
+        if (z > 0.07 && z < 0.15 && Math.abs(x) > 0.048 && y > 0.015 && y < 0.075) return 0.004;
+        return z > 0.14 ? 0.010 : 0.019;
+      },
+      sculptFn: (v, th, ring) => {
+        // Subtle canine forehead furrow + recessed orbital eye sockets + soft cheek contour!
+        const sinT = Math.sin(th), cosT = Math.cos(th);
+        let mod = 1.0;
+        // Median forehead dip between brows
+        if (v > 0.25 && v < 0.58 && sinT > 0.72) {
+          mod -= 0.035 * Math.pow((sinT - 0.72) * 3.5, 2);
+        }
+        // Subtle recessed eye socket hollows
+        if (v > 0.34 && v < 0.56 && Math.abs(cosT) > 0.45 && sinT > -0.05 && sinT < 0.55) {
+          const e = Math.exp(-Math.pow((v - 0.45) * 12, 2)) * Math.exp(-Math.pow((sinT - 0.24) * 5, 2));
+          mod -= 0.06 * e;
+        }
+        // Soft full muzzle flews near snout sides
+        if (v > 0.62 && v < 0.90 && sinT < -0.15 && Math.abs(cosT) > 0.35) {
+          mod += 0.06 * Math.exp(-Math.pow((v - 0.76) * 8, 2));
+        }
+        return mod;
+      }
     });
-    MB.translate(skull, 0, 0.02, 0.02);
-    parts.push(skull);
+    parts.push(head);
 
-    // Long slender tapered dachshund snout / muzzle
-    const snout = MB.ellipsoid(0.086, 0.070, 0.175, 14, 10, (nx, ny, nz) => {
-      const topBridge = clamp((ny - 0.18) * 2.2, 0, 1) * clamp(1 - Math.abs(nx) * 1.35, 0, 1);
-      const sideTan = mixColor(COL_TAN, COL_CHOC_WARM, clamp(0.35 - nz * 0.25, 0, 0.5));
-      return mixColor(sideTan, COL_CHOC_MID, clamp(topBridge * 0.92 + (ny > 0.5 ? 0.35 : 0), 0, 1));
-    });
-    MB.rotateX(snout, 0.10);
-    MB.translate(snout, 0, -0.022, 0.19);
-    parts.push(snout);
-
-    // Subtle rounded muzzle cheeks
+    // Fine facial details: subtle flews, tucked teeth for wide-open chomp, brow hair pips & fine whiskers!
+    const faceHair = MB.createHairBatch();
     for (const side of [-1, 1]) {
-      const pad = MB.ellipsoid(0.052, 0.042, 0.072, 10, 8, COL_TAN);
-      MB.translate(pad, side * 0.038, -0.044, 0.24);
-      parts.push(pad);
+      const lip = MB.ellipsoid(0.035, 0.025, 0.064, 14, 10, COL_TAN);
+      MB.translate(lip, side * 0.032, -0.048, 0.256);
+      parts.push(lip);
 
-      // Cute visible upper white canine teeth so wide-open chomps read unmistakably!
-      const fang = MB.cone ? null : MB.cylinder(0.004, 0.014, 0.034, 7, COL_TEETH, COL_TEETH, 0, 0, true, true);
-      MB.translate(fang, side * 0.038, -0.092, 0.265);
+      const fang = MB.cylinder(0.003, 0.010, 0.024, 8, COL_TEETH, COL_TEETH, 0, 0, true, true);
+      MB.translate(fang, side * 0.029, -0.072, 0.264);
       parts.push(fang);
 
-      const molar = MB.ellipsoid(0.010, 0.012, 0.022, 6, 5, COL_TEETH);
-      MB.translate(molar, side * 0.040, -0.076, 0.215);
+      const molar = MB.ellipsoid(0.008, 0.009, 0.018, 8, 6, COL_TEETH);
+      MB.translate(molar, side * 0.031, -0.066, 0.215);
       parts.push(molar);
-    }
 
-    // Warm dark inner mouth roof (visible when Pixel opens wide to chomp!)
-    const palate = MB.ellipsoid(0.052, 0.018, 0.11, 8, 6, COL_MOUTH_DARK);
-    MB.translate(palate, 0, -0.068, 0.20);
+      // Soft natural caramel-tan eyebrow oval + delicate fine brow hairs right above each eye!
+      const browPad = MB.ellipsoid(0.018, 0.009, 0.015, 10, 6, COL_TAN);
+      MB.rotateZ(browPad, -side * 0.25);
+      MB.translate(browPad, side * 0.053, 0.092, 0.104);
+      parts.push(browPad);
+
+      for (let i = 0; i < 14; i++) {
+        const bx = side * (0.044 + rng() * 0.018);
+        const by = 0.090 + rng() * 0.010;
+        const bz = 0.098 + rng() * 0.016;
+        MB.addHairStrand(
+          faceHair, bx, by, bz,
+          side * 0.20, 0.15, -0.94,
+          side * 0.002, -0.002, -0.003,
+          0.014 + rng() * 0.006, 0.0042, 0.0025,
+          COL_TAN, COL_TAN_LIGHT, COL_CHOC_WARM
+        );
+      }
+
+      // Soft cheek & crown transition hairs
+      for (let i = 0; i < 16; i++) {
+        const cx = side * (0.095 + rng() * 0.022);
+        const cy = -0.015 + rng() * 0.045;
+        const cz = -0.03 + rng() * 0.11;
+        MB.addHairStrand(
+          faceHair, cx, cy, cz,
+          side * 0.35, -0.55, -0.75,
+          side * 0.004, -0.008, -0.008,
+          0.032 + rng() * 0.018, 0.006, 0.0035,
+          COL_CHOC_MID, COL_CHOC_WARM, COL_TAN
+        );
+      }
+
+      // Ultra-fine delicate muzzle whiskers (6 per side)
+      for (let i = 0; i < 6; i++) {
+        const wy = -0.042 + (i % 2) * 0.012;
+        const wz = 0.245 + Math.floor(i / 2) * 0.024;
+        MB.addHairStrand(
+          faceHair, side * 0.056, wy, wz,
+          side * 0.92, -0.18 - rng() * 0.12, 0.15 - (i * 0.08),
+          side * 0.008, -0.014, -0.010,
+          0.058 + rng() * 0.018, 0.0014, 0.0014,
+          COL_CHOC_WARM, COL_TAN, COL_TAN_LIGHT
+        );
+      }
+    }
+    parts.push(faceHair);
+
+    const palate = MB.ellipsoid(0.046, 0.014, 0.100, 10, 8, COL_MOUTH_DARK);
+    MB.translate(palate, 0, -0.060, 0.205);
     parts.push(palate);
 
-    // Distinct liver / dusty-rose chocolate-dog nose integrated cleanly at snout tip
-    const nose = MB.ellipsoid(0.042, 0.030, 0.032, 12, 8, (nx, ny, nz) =>
-      tintColor(COL_NOSE, 0.85 + clamp(ny * 0.35 + nz * 0.2, -0.15, 0.3))
+    // Sculpted realistic liver-rose canine nose (bi-lobed with philtrum cleft & curved nostrils!)
+    const noseMain = MB.ellipsoid(0.037, 0.025, 0.026, 20, 14, (nx, ny) =>
+      tintColor(COL_NOSE, 0.85 + clamp(ny * 0.32, -0.12, 0.28))
     );
-    MB.translate(nose, 0, -0.014, 0.352);
-    parts.push(nose);
+    MB.translate(noseMain, 0, -0.016, 0.362);
+    parts.push(noseMain);
 
-    // Soulful big expressive eyes + cute tan dachshund eyebrow pips!
     for (const side of [-1, 1]) {
-      const rim = MB.ellipsoid(0.044, 0.045, 0.035, 12, 9, COL_CHOC_DEEP);
-      MB.translate(rim, side * 0.082, 0.046, 0.132);
-      parts.push(rim);
+      const lobe = MB.ellipsoid(0.020, 0.018, 0.018, 12, 8, COL_NOSE);
+      MB.translate(lobe, side * 0.015, -0.013, 0.368);
+      parts.push(lobe);
 
-      const eye = MB.ellipsoid(0.038, 0.040, 0.033, 12, 9, COL_EYE);
-      MB.translate(eye, side * 0.085, 0.047, 0.145);
-      parts.push(eye);
+      const nostril = MB.ellipsoid(0.0085, 0.0075, 0.0075, 10, 6, COL_NOSTRIL);
+      MB.translate(nostril, side * 0.016, -0.017, 0.386);
+      parts.push(nostril);
+    }
 
-      const spark = MB.ellipsoid(0.011, 0.012, 0.010, 8, 6, COL_EYE_SPARK);
-      MB.translate(spark, side * 0.096, 0.062, 0.170);
-      parts.push(spark);
+    // Ultra-detailed almond-round soulful dark-amber eyes with sculpted eyelids & dual window catchlights!
+    for (const side of [-1, 1]) {
+      const upperLid = MB.ellipsoid(0.033, 0.032, 0.031, 16, 12, COL_CHOC_DEEP);
+      MB.translate(upperLid, side * 0.074, 0.045, 0.106);
+      parts.push(upperLid);
 
-      // Cute small caramel-tan eyebrow pip above each eye
-      const brow = MB.ellipsoid(0.025, 0.015, 0.020, 8, 6, COL_TAN);
-      MB.rotateZ(brow, -side * 0.25);
-      MB.translate(brow, side * 0.064, 0.104, 0.136);
-      parts.push(brow);
+      const iris = MB.ellipsoid(0.0275, 0.0285, 0.027, 18, 14, (nx, ny, nz) => {
+        if (nz > 0.62) return COL_EYE_PUPIL;
+        return mixColor(COL_EYE_IRIS, COL_EYE_PUPIL, clamp((nz - 0.25) * 1.4, 0, 0.6));
+      });
+      MB.translate(iris, side * 0.077, 0.044, 0.117);
+      parts.push(iris);
+
+      // Primary + tiny secondary glossy catchlights for lifelike soulful gaze!
+      const spark1 = MB.ellipsoid(0.007, 0.0075, 0.0065, 10, 8, COL_EYE_SPARK);
+      MB.translate(spark1, side * 0.086, 0.056, 0.138);
+      parts.push(spark1);
+
+      const spark2 = MB.ellipsoid(0.0035, 0.0035, 0.0035, 8, 6, COL_EYE_SPARK);
+      MB.translate(spark2, side * 0.073, 0.036, 0.141);
+      parts.push(spark2);
     }
 
     return MB.merge(parts);
@@ -199,113 +372,197 @@
 
   function buildJawMesh() {
     const parts = [];
-    const jaw = MB.ellipsoid(0.064, 0.034, 0.138, 12, 8, COL_TAN);
-    MB.translate(jaw, 0, -0.018, 0.115);
+    const jawRings = [
+      { cz: 0.01, cy: -0.015, rx: 0.054, ry: 0.024 },
+      { cz: 0.10, cy: -0.018, rx: 0.048, ry: 0.022 },
+      { cz: 0.19, cy: -0.016, rx: 0.038, ry: 0.019 },
+      { cz: 0.245, cy: -0.012, rx: 0.024, ry: 0.014 },
+    ];
+    const jaw = MB.smoothLoft(jawRings, 20, 3, (nx, ny, nz, x, y, z) =>
+      mixColor(COL_TAN, COL_CHOC_WARM, clamp((0.12 - z) * 4.0, 0, 0.5))
+    , { furLen: 0.010 });
     parts.push(jaw);
 
-    const innerJaw = MB.ellipsoid(0.048, 0.014, 0.108, 8, 6, COL_MOUTH_DARK);
-    MB.translate(innerJaw, 0, 0.006, 0.115);
+    const innerJaw = MB.ellipsoid(0.042, 0.012, 0.098, 12, 8, COL_MOUTH_DARK);
+    MB.translate(innerJaw, 0, 0.002, 0.118);
     parts.push(innerJaw);
 
-    const tongue = MB.ellipsoid(0.036, 0.018, 0.078, 8, 6, COL_TONGUE);
-    MB.translate(tongue, 0, 0.016, 0.135);
+    const tongue = MB.ellipsoid(0.032, 0.015, 0.076, 14, 10, COL_TONGUE);
+    MB.translate(tongue, 0, 0.012, 0.138);
     parts.push(tongue);
 
-    // Lower cute white teeth!
     for (const side of [-1, 1]) {
-      const lowerFang = MB.cylinder(0.012, 0.004, 0.028, 7, COL_TEETH, COL_TEETH, 0, 0, true, true);
-      MB.translate(lowerFang, side * 0.034, 0.006, 0.195);
+      const lowerFang = MB.cylinder(0.009, 0.003, 0.022, 8, COL_TEETH, COL_TEETH, 0, 0, true, true);
+      MB.translate(lowerFang, side * 0.028, 0.002, 0.195);
       parts.push(lowerFang);
     }
     return MB.merge(parts);
   }
 
-  // Pixel's ICONIC long silky feathered floppy ear!
+  // Pixel's ICONIC silky flowing long-haired dachshund ear — thin anatomical pinna + 260 layered wavy silky hair strands!!
   function buildEarMesh(side) {
     const parts = [];
+    const rng = createRng(side > 0 ? 1101 : 1102);
 
-    // Main velvety chocolate ear hanging gracefully down & flaring slightly outward
-    const mainEar = MB.ellipsoid(0.048, 0.195, 0.112, 14, 10, (nx, ny) => {
-      const t = clamp((-ny + 0.15) * 0.65, 0, 1);
-      return mixColor(COL_CHOC_DEEP, COL_CHOC_WARM, t);
-    });
-    MB.rotateZ(mainEar, side * 0.24);
-    MB.translate(mainEar, side * 0.045, -0.155, -0.01);
-    parts.push(mainEar);
-
-    // Silky feathered chocolate-to-cinnamon fur fringes fanning softly out at bottom
-    const strands = [
-      { ox: 0.082, oy: -0.22, oz: 0.052, rx: 0.030, ry: 0.115, rz: 0.048, tiltZ: 0.34, tiltX: -0.14 },
-      { ox: 0.092, oy: -0.25, oz: -0.005, rx: 0.034, ry: 0.135, rz: 0.054, tiltZ: 0.40, tiltX: 0.02 },
-      { ox: 0.084, oy: -0.24, oz: -0.062, rx: 0.030, ry: 0.125, rz: 0.048, tiltZ: 0.36, tiltX: 0.16 },
-      { ox: 0.052, oy: -0.27, oz: 0.020, rx: 0.028, ry: 0.105, rz: 0.046, tiltZ: 0.22, tiltX: -0.05 },
-      { ox: 0.052, oy: -0.27, oz: -0.036, rx: 0.028, ry: 0.110, rz: 0.046, tiltZ: 0.24, tiltX: 0.10 },
+    // Thin graceful anatomical ear core hidden cleanly beneath the cascading silky hair!
+    const earRings = [
+      { cx: side * 0.004, cy:  0.004, cz:  0.000, rx: 0.014, rz: 0.052 },
+      { cx: side * 0.026, cy: -0.058, cz: -0.005, rx: 0.016, rz: 0.080 },
+      { cx: side * 0.048, cy: -0.140, cz: -0.008, rx: 0.016, rz: 0.092 },
+      { cx: side * 0.064, cy: -0.225, cz: -0.006, rx: 0.014, rz: 0.078 },
+      { cx: side * 0.072, cy: -0.285, cz: -0.002, rx: 0.008, rz: 0.044 },
     ];
-    for (const s of strands) {
-      const lock = MB.ellipsoid(s.rx, s.ry, s.rz, 8, 6, (nx, ny) =>
-        mixColor(COL_FEATHER_TIP, COL_CHOC_MID, clamp(ny * 0.55 + 0.62, 0, 1))
+    const earCore = MB.smoothLoft(earRings, 20, 3, (nx, ny, nz, x, y, z, v) =>
+      mixColor(COL_CHOC_DEEP, COL_CHOC_WARM, clamp(v * 0.9, 0, 1))
+    , { axis: 'y', flipWinding: true, furFn: (nx, ny, nz, x, y, z, v) => lerp(0.016, 0.028, v) });
+    parts.push(earCore);
+
+    // 320 lush, plush, softly curving silky hair strands draping naturally down & framing Pixel's face!
+    const hairs = MB.createHairBatch();
+    for (let i = 0; i < 320; i++) {
+      const row = rng();
+      const zFrac = (rng() - 0.5) * 2;
+      const maxZ = lerp(0.052, 0.090, Math.sin(row * Math.PI * 0.82));
+      const z0 = zFrac * maxZ;
+      const y0 = -row * 0.230;
+      const outFace = (rng() < 0.80) ? 1 : -0.45;
+      const x0 = side * (lerp(0.008, 0.064, row) + outFace * (0.010 + rng() * 0.006));
+
+      // Gentle soft drape & subtle graceful outward curl (velvety, not stiff broom-straight!)
+      const fanOut = 0.14 + row * 0.16 + (rng() - 0.5) * 0.10;
+      const fanZ = zFrac * (0.12 + row * 0.12) + (rng() - 0.5) * 0.08;
+      const len = lerp(0.095, 0.138, row) * (0.85 + rng() * 0.30);
+
+      const wave = Math.sin(zFrac * 4.5 + row * 5.0) * 0.012;
+      const cRoot = mixColor(COL_CHOC_DEEP, COL_CHOC_MID, clamp(row * 0.75 + rng() * 0.25, 0, 1));
+      const cMid  = mixColor(COL_CHOC_MID, COL_CHOC_WARM, clamp(row * 0.85 + 0.12, 0, 1));
+      const cTip  = mixColor(COL_CHOC_WARM, COL_FEATHER_TIP, clamp(row * 0.95 + rng() * 0.30, 0, 1));
+
+      MB.addHairStrand(
+        hairs, x0, y0, z0,
+        side * fanOut, -0.96, fanZ,
+        side * (0.014 + wave), -0.022, fanZ * 0.020,
+        len, 0.0125 + rng() * 0.005, 0.0055,
+        cRoot, cMid, cTip
       );
-      MB.rotateX(lock, s.tiltX);
-      MB.rotateZ(lock, side * s.tiltZ);
-      MB.translate(lock, side * s.ox, s.oy, s.oz);
-      parts.push(lock);
     }
+    parts.push(hairs);
 
     return MB.merge(parts);
   }
 
-  // Cute stubby low-rider dachshund leg pivoted at y = 0.28, reaching down to ground y = 0
+  // High-res anatomical dachshund leg + 4-toed sculpted paw + 38 silky trailing leg feather hairs!
   function buildLegMesh(isFront, side) {
     const parts = [];
+    const rng = createRng((isFront ? 1200 : 1300) + (side > 0 ? 1 : 2));
 
-    const upper = MB.capsule(isFront ? 0.058 : 0.065, 0.11, 10, 5, (nx, ny) => {
-      let c = mixColor(COL_CHOC_MID, COL_CHOC_DEEP, clamp(ny * 0.5 + 0.5, 0, 1));
-      if (ny < -0.3) c = mixColor(c, COL_TAN, clamp((-ny - 0.3) * 1.6, 0, 1) * 0.72);
+    const legRings = isFront
+      ? [
+          { cx: -side * 0.018, cy:  0.048, cz:  0.000, rx: 0.022, rz: 0.028 },
+          { cx: -side * 0.005, cy:  0.005, cz:  0.000, rx: 0.056, rz: 0.064 },
+          { cx:  0,            cy: -0.075, cz: -0.006, rx: 0.049, rz: 0.053 },
+          { cx:  side * 0.004, cy: -0.165, cz:  0.006, rx: 0.039, rz: 0.043 },
+          { cx:  side * 0.008, cy: -0.240, cz:  0.020, rx: 0.036, rz: 0.040 },
+        ]
+      : [
+          { cx: -side * 0.018, cy:  0.048, cz:  0.000, rx: 0.024, rz: 0.034 },
+          { cx: -side * 0.005, cy:  0.005, cz:  0.000, rx: 0.060, rz: 0.074 },
+          { cx:  0,            cy: -0.080, cz: -0.026, rx: 0.048, rz: 0.056 },
+          { cx:  side * 0.003, cy: -0.170, cz: -0.032, rx: 0.036, rz: 0.040 },
+          { cx:  side * 0.006, cy: -0.240, cz: -0.005, rx: 0.035, rz: 0.040 },
+        ];
+
+    const leg = MB.smoothLoft(legRings, 22, 3, (nx, ny, nz, x, y, z, v) => {
+      let c = mixColor(COL_CHOC_DEEP, COL_CHOC_MID, clamp(v * 0.7, 0, 1));
+      if (v > 0.56) {
+        c = mixColor(c, COL_TAN, clamp((v - 0.56) * 2.3, 0, 1) * 0.92);
+      }
       return c;
-    }, 'y');
-    MB.translate(upper, 0, -0.075, isFront ? 0 : -0.01);
-    parts.push(upper);
+    }, { axis: 'y', flipWinding: true, furFn: (nx, ny, nz, x, y, z, v) => lerp(0.024, 0.011, v) });
+    parts.push(leg);
 
-    const lower = MB.capsule(0.044, 0.09, 10, 4, (nx, ny) =>
-      mixColor(COL_TAN, COL_CHOC_WARM, clamp(ny * 0.6 + 0.35, 0, 1))
-    , 'y');
-    MB.translate(lower, 0, -0.19, isFront ? 0.012 : -0.012);
-    parts.push(lower);
+    // Sculpted caramel-tan dachshund paw with 4 arched toes + tiny dark claws!
+    const pawZ = isFront ? 0.034 : 0.012;
+    const pawBase = MB.ellipsoid(0.048, 0.025, 0.056, 14, 10, COL_TAN);
+    MB.rotateY(pawBase, side * (isFront ? 0.22 : 0.10));
+    MB.translate(pawBase, side * 0.010, -0.258, pawZ);
+    parts.push(pawBase);
 
-    const paw = MB.ellipsoid(0.056, 0.035, 0.082, 10, 6, (nx, ny) =>
-      mixColor(COL_TAN, COL_TAN_LIGHT, clamp(ny * 0.5 + 0.5, 0, 1))
-    );
-    MB.rotateY(paw, side * (isFront ? 0.18 : 0.08));
-    MB.translate(paw, side * 0.01, -0.255, isFront ? 0.042 : 0.025);
-    parts.push(paw);
+    const toeAngles = [-0.36, -0.12, 0.12, 0.36];
+    for (let i = 0; i < 4; i++) {
+      const a = toeAngles[i] + side * (isFront ? 0.18 : 0.08);
+      const reach = (i === 1 || i === 2) ? 0.050 : 0.043;
+      const tx = side * 0.010 + Math.sin(a) * reach;
+      const tz = pawZ + Math.cos(a) * reach;
+      const toe = MB.ellipsoid(0.014, 0.015, 0.025, 10, 7, COL_TAN_LIGHT);
+      MB.rotateY(toe, a);
+      MB.translate(toe, tx, -0.264, tz);
+      parts.push(toe);
 
-    const feather = MB.ellipsoid(0.032, 0.065, 0.042, 7, 5, COL_CHOC_WARM);
-    MB.translate(feather, 0, -0.13, -0.048);
-    parts.push(feather);
+      const claw = MB.ellipsoid(0.005, 0.0055, 0.012, 7, 5, COL_CLAW);
+      MB.rotateY(claw, a);
+      MB.translate(claw, tx + Math.sin(a) * 0.021, -0.270, tz + Math.cos(a) * 0.021);
+      parts.push(claw);
+    }
+
+    // Fine silky trailing feathering down the back of each leg (38 fine hairs per leg!)
+    const legHairs = MB.createHairBatch();
+    for (let i = 0; i < 38; i++) {
+      const u = rng();
+      const y0 = lerp(-0.02, -0.21, u);
+      const x0 = (rng() - 0.5) * 0.065;
+      const z0 = (isFront ? -0.042 : -0.052) + (rng() - 0.5) * 0.015;
+      const cRoot = u > 0.65 ? COL_TAN : COL_CHOC_MID;
+      const cTip  = u > 0.55 ? COL_TAN_LIGHT : COL_CHOC_WARM;
+      MB.addHairStrand(
+        legHairs, x0, y0, z0,
+        (rng() - 0.5) * 0.25, -0.78, -0.58,
+        0, -0.018, -0.020,
+        0.055 + rng() * 0.042, 0.0075, 0.004,
+        cRoot, cRoot, cTip
+      );
+    }
+    parts.push(legHairs);
 
     return MB.merge(parts);
   }
 
-  // Long feathered plumed tail segment (extends along -Z from pivot 0,0,0)
+  // Long sweeping glossy chocolate tail + 120 flowing silky cascading tail plume hairs per segment (240 total!)
   function buildTailSegment(length, rBase, isTip) {
     const parts = [];
-    const shaft = MB.capsule(rBase, length, 10, 5, (nx, ny) =>
+    const rng = createRng(isTip ? 1402 : 1401);
+
+    const rings = [
+      { cz: 0,             cy:  0.000, rx: rBase,        ry: rBase },
+      { cz: -length * 0.5, cy: -0.004, rx: rBase * 0.84, ry: rBase * 0.84 },
+      { cz: -length,       cy: -0.010, rx: isTip ? 0.010 : rBase * 0.70, ry: isTip ? 0.010 : rBase * 0.70 },
+    ];
+    const shaft = MB.smoothLoft(rings, 18, 3, (nx, ny) =>
       mixColor(COL_CHOC_WARM, COL_CHOC_DEEP, clamp(ny * 0.5 + 0.55, 0, 1))
-    , 'z');
-    MB.translate(shaft, 0, 0, -length * 0.5);
+    , { flipWinding: true, furLen: 0.026 });
     parts.push(shaft);
 
-    const plumeCount = isTip ? 3 : 2;
-    for (let i = 0; i < plumeCount; i++) {
-      const f = (i + 0.5) / plumeCount;
-      const pLen = isTip ? lerp(0.115, 0.065, f) : 0.11;
-      const plume = MB.ellipsoid(0.034, pLen, 0.08, 8, 6, (nx, ny) =>
-        mixColor(COL_FEATHER_TIP, COL_CHOC_WARM, clamp(ny * 0.55 + 0.55, 0, 1))
+    const plume = MB.createHairBatch();
+    for (let i = 0; i < 120; i++) {
+      const f = rng();
+      const z0 = -f * length;
+      const x0 = (rng() - 0.5) * rBase * 1.4;
+      const y0 = -rBase * 0.4 + (rng() - 0.5) * 0.016;
+      const fanScale = isTip ? lerp(1.0, 0.35, f) : lerp(0.65, 1.05, f);
+      const len = (0.09 + rng() * 0.085) * fanScale;
+      const cRoot = mixColor(COL_CHOC_DEEP, COL_CHOC_MID, 0.4 + rng() * 0.4);
+      const cMid  = mixColor(COL_CHOC_MID, COL_CHOC_WARM, 0.4 + rng() * 0.45);
+      const cTip  = mixColor(COL_CHOC_WARM, COL_FEATHER_TIP, 0.45 + rng() * 0.55);
+      MB.addHairStrand(
+        plume, x0, y0, z0,
+        (rng() - 0.5) * 0.32, -0.78 - rng() * 0.18, -0.58 - rng() * 0.22,
+        (rng() - 0.5) * 0.012, -0.025, -0.032,
+        len, 0.0085 + rng() * 0.004, 0.0045,
+        cRoot, cMid, cTip
       );
-      MB.rotateX(plume, 0.48);
-      MB.translate(plume, 0, -pLen * 0.62, -f * length - 0.02);
-      parts.push(plume);
     }
+    parts.push(plume);
+
     return MB.merge(parts);
   }
 
@@ -674,12 +931,12 @@
       const earFlare = 0.08 + this.earBounce * 0.95;
 
       Mat4.copy(this.mEarL, this.mHead);
-      Mat4.translate(this.mEarL, this.mEarL, 0.138, 0.068, 0.005);
+      Mat4.translate(this.mEarL, this.mEarL, 0.112, 0.072, -0.012);
       Mat4.rotateX(this.mEarL, this.mEarL, earWindBack + Math.sin(this.gaitPhase - 0.5) * 0.12 * runBlend);
       Mat4.rotateZ(this.mEarL, this.mEarL, earFlare + clamp(-this.turnRate * 0.08, -0.2, 0.25));
 
       Mat4.copy(this.mEarR, this.mHead);
-      Mat4.translate(this.mEarR, this.mEarR, -0.138, 0.068, 0.005);
+      Mat4.translate(this.mEarR, this.mEarR, -0.112, 0.072, -0.012);
       Mat4.rotateX(this.mEarR, this.mEarR, earWindBack + Math.sin(this.gaitPhase - 0.3) * 0.12 * runBlend);
       Mat4.rotateZ(this.mEarR, this.mEarR, -earFlare + clamp(-this.turnRate * 0.08, -0.25, 0.2));
 
@@ -722,20 +979,22 @@
       Mat4.rotateY(this.mTail2, this.mTail2, wag2);
       Mat4.rotateX(this.mTail2, this.mTail2, -0.18);
 
-      // Shiny glossy coat material settings!
-      const coatMat = { shininess: 46, specStrength: 0.24, rimStrength: 0.28 };
-      const headMat = { shininess: 64, specStrength: 0.32, rimStrength: 0.28 };
+      // 100% Full-body silky long-haired coat shading + 16-layer volumetric GPU fur shells!
+      const coatMat = { shininess: 22, specStrength: 0.12, rimStrength: 0.24, furMode: 1, furShells: true, combDir: [0, -0.35, -0.68] };
+      const headMat = { shininess: 28, specStrength: 0.16, rimStrength: 0.24, furMode: 1, furShells: true, combDir: [0, -0.28, -0.62] };
+      const earMat  = { shininess: 22, specStrength: 0.12, rimStrength: 0.24, furMode: 1, furShells: true, combDir: [0, -0.88, -0.15] };
+      const legMat  = { shininess: 20, specStrength: 0.10, rimStrength: 0.22, furMode: 1, furShells: true, combDir: [0, -0.78, -0.35] };
 
       drawList.push(
         { mesh: this.torsoMesh, model: this.mBody, ...coatMat },
         { mesh: this.headMesh, model: this.mHead, ...headMat },
-        { mesh: this.jawMesh, model: this.mJaw, ...coatMat },
-        { mesh: this.earLeftMesh, model: this.mEarL, ...coatMat },
-        { mesh: this.earRightMesh, model: this.mEarR, ...coatMat },
-        { mesh: this.legFLMesh, model: this.mLegFL, ...coatMat },
-        { mesh: this.legFRMesh, model: this.mLegFR, ...coatMat },
-        { mesh: this.legBLMesh, model: this.mLegBL, ...coatMat },
-        { mesh: this.legBRMesh, model: this.mLegBR, ...coatMat },
+        { mesh: this.jawMesh, model: this.mJaw, ...headMat },
+        { mesh: this.earLeftMesh, model: this.mEarL, ...earMat },
+        { mesh: this.earRightMesh, model: this.mEarR, ...earMat },
+        { mesh: this.legFLMesh, model: this.mLegFL, ...legMat },
+        { mesh: this.legFRMesh, model: this.mLegFR, ...legMat },
+        { mesh: this.legBLMesh, model: this.mLegBL, ...legMat },
+        { mesh: this.legBRMesh, model: this.mLegBR, ...legMat },
         { mesh: this.tailBaseMesh, model: this.mTail1, ...coatMat },
         { mesh: this.tailTipMesh, model: this.mTail2, ...coatMat }
       );
