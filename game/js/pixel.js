@@ -731,8 +731,9 @@
       const targetYaw = pocky.yaw - 1.52;
       const fx = Math.sin(targetYaw);
       const fz = Math.cos(targetYaw);
-      const tx = ear[0] - fx * 0.90;
-      const tz = ear[2] - fz * 0.90;
+      const noseOffset = this.glbModel ? 0.64 : 0.90;
+      const tx = ear[0] - fx * noseOffset;
+      const tz = ear[2] - fz * noseOffset;
       const ty = world.getHeight(tx, tz);
       this.biteAnchor = { x: tx, y: ty, z: tz, yaw: targetYaw };
       this.grounded = false;

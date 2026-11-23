@@ -92,12 +92,15 @@
   pixel.reset(world);
   pocky.reset(world);
 
-  // Automatically load photo-to-3D Pixel model if game/assets/pixel.glb is present (silent fallback to procedural Pixel otherwise)
+  // Automatically load photo-to-3D models if assets/pixel.glb or assets/pocky.glb are present (silent fallback otherwise)
   pixel.loadGLB(renderer, 'assets/pixel.glb', { targetLength: 1.24 }).then((loaded) => {
     if (loaded) console.log('Loaded 3D Pixel model: assets/pixel.glb');
   });
+  pocky.loadGLB(renderer, 'assets/pocky.glb', { targetLength: 1.40 }).then((loaded) => {
+    if (loaded) console.log('Loaded 3D Pocky model: assets/pocky.glb');
+  });
 
-  // Also allow dragging & dropping a pixel.glb file right onto the game window for instant preview!
+  // Also allow dragging & dropping pixel.glb or pocky.glb right onto the game window for instant preview!
   window.addEventListener('dragover', (e) => { e.preventDefault(); });
   window.addEventListener('drop', async (e) => {
     e.preventDefault();
@@ -105,16 +108,25 @@
     if (!file || !/\.glb$/i.test(file.name)) return;
     try {
       const ab = await file.arrayBuffer();
-      await pixel.loadGLBBuffer(renderer, ab, { targetLength: 1.24 });
-      showToast('Loaded 3D Pixel (' + file.name + ')! Press F to flip if backwards.', 3.8);
+      if (/pocky/i.test(file.name)) {
+        await pocky.loadGLBBuffer(renderer, ab, { targetLength: 1.40 });
+        showToast('Loaded 3D Pocky (' + file.name + ')! Press G to flip if backwards.', 3.8);
+      } else {
+        await pixel.loadGLBBuffer(renderer, ab, { targetLength: 1.24 });
+        showToast('Loaded 3D Pixel (' + file.name + ')! Press F to flip if backwards.', 3.8);
+      }
     } catch (err) {
       showToast('Could not read GLB: ' + err.message, 3.5);
     }
   });
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyF' && pixel.glbModel && document.activeElement !== joinCodeInput) {
+    if (document.activeElement === joinCodeInput) return;
+    if (e.code === 'KeyF' && pixel.glbModel) {
       pixel.flipGLBHeading();
       showToast('Flipped Pixel 3D model 180°!', 2.0);
+    } else if (e.code === 'KeyG' && pocky.glbModel) {
+      pocky.flipGLBHeading();
+      showToast('Flipped Pocky 3D model 180°!', 2.0);
     }
   });
 
