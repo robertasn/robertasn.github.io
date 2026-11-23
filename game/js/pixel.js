@@ -607,9 +607,14 @@
       this.headLookYaw = 0;
       this.stepSide = 0;
 
+      // Optional photo-to-3D .glb model override (loads seamlessly if assets/pixel.glb exists!)
+      this.glbModel = null;
+      this.glbYawOffset = 0;
+
       // Preallocated transform matrices
       this.mRoot = Mat4.create();
       this.mBody = Mat4.create();
+      this.mGlb = Mat4.create();
       this.mHead = Mat4.create();
       this.mJaw = Mat4.create();
       this.mEarL = Mat4.create();
@@ -620,6 +625,26 @@
       this.mLegBR = Mat4.create();
       this.mTail1 = Mat4.create();
       this.mTail2 = Mat4.create();
+    }
+
+    async loadGLB(renderer, url, opts) {
+      if (!global.GLBLoader) return false;
+      try {
+        this.glbModel = await global.GLBLoader.load(renderer, url, opts || { targetLength: 1.24 });
+        return true;
+      } catch (_err) {
+        return false;
+      }
+    }
+
+    async loadGLBBuffer(renderer, arrayBuffer, opts) {
+      if (!global.GLBLoader) return false;
+      this.glbModel = await global.GLBLoader.loadArrayBuffer(renderer, arrayBuffer, opts || { targetLength: 1.24 });
+      return true;
+    }
+
+    flipGLBHeading() {
+      this.glbYawOffset = (this.glbYawOffset + Math.PI) % (Math.PI * 2);
     }
 
     reset(world) {
@@ -1034,6 +1059,37 @@
       Mat4.translate(this.mTail2, this.mTail2, 0, 0, -0.26);
       Mat4.rotateY(this.mTail2, this.mTail2, wag2);
       Mat4.rotateX(this.mTail2, this.mTail2, -0.18);
+
+      // If a real photo-to-3D .glb model of Pixel is loaded, render it with lively gallop, bounce, tail-wag & ear-tug animation!
+      if (this.glbModel) {
+        Mat4.copy(this.mGlb, this.mBody);
+        if (this.bitingEar && this.biteAnimTime >= 0.34) {
+          const tAfter = this.biteAnimTime - 0.34;
+          const shake = Math.sin(tAfter * 12.5);
+          Mat4.rotateY(this.mGlb, this.mGlb, shake * 0.14);
+          Mat4.rotateZ(this.mGlb, this.mGlb, shake * 0.10);
+        }
+        if (this.glbYawOffset !== 0) {
+          Mat4.rotateY(this.mGlb, this.mGlb, this.glbYawOffset);
+        }
+        const animAmp = this.grounded ? runBlend * (0.75 + sprintBlend * 0.45) : 0.25;
+        const animVec = [this.gaitPhase, animAmp, this.tailPhase, 1.0];
+        for (const part of this.glbModel.parts) {
+          drawList.push({
+            mesh: part.mesh,
+            model: this.mGlb,
+            texture: part.texture,
+            doubleSided: part.doubleSided,
+            anim: animVec,
+            shininess: 14,
+            specStrength: 0.055,
+            rimStrength: 0.24,
+            furMode: 0,
+            furShells: false,
+          });
+        }
+        return;
+      }
 
       // 100% Full-body silky long-haired coat shading + 16-layer volumetric GPU fur shells!
       const coatMat = { shininess: 22, specStrength: 0.12, rimStrength: 0.24, furMode: 1, furShells: true, combDir: [0, -0.35, -0.68] };

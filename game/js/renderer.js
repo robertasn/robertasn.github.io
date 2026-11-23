@@ -35,21 +35,52 @@
   layout(location=1) in vec3 aNorm;
   layout(location=2) in vec3 aColor;
   layout(location=3) in float aWind;
+  layout(location=4) in vec2 aUv;
 
   uniform mat4 uVP;
   uniform mat4 uModel;
   uniform mat4 uLightVP;
   uniform float uTime;
   uniform float uFurMode;
+  uniform vec4 uAnim; // x=gaitPhase, y=runAmp, z=tailWag, w=enabled (>0.5 for .glb dogs!)
 
   out vec3 vWorldPos;
   out vec3 vLocalPos;
   out vec3 vNormal;
   out vec3 vColor;
+  out vec2 vUv;
   out vec4 vLightSpacePos;
 
   void main() {
-    vec4 wp = uModel * vec4(aPos, 1.0);
+    vec3 lp = aPos;
+    // Procedural living leg-stride, ear-bounce & tail-wag animation for unrigged photo-to-3D .glb dog models!
+    if (uAnim.w > 0.5) {
+      float phase = uAnim.x;
+      float amp = uAnim.y;
+      float wag = uAnim.z;
+      // Front & rear paws swing smoothly in opposing gallop strides
+      float lowMask = clamp((0.26 - lp.y) / 0.22, 0.0, 1.0);
+      if (lowMask > 0.001 && amp > 0.01) {
+        float isFront = smoothstep(-0.04, 0.12, lp.z);
+        float isLeft = step(0.0, lp.x);
+        float legPhase = phase + (1.0 - isFront) * 3.14159 + isLeft * 0.55;
+        float swing = sin(legPhase) * 0.13 * amp * lowMask;
+        float lift = max(0.0, cos(legPhase)) * 0.055 * amp * lowMask;
+        lp.z += swing;
+        lp.y += lift;
+      }
+      // Silky ears bounce slightly as she gallops
+      float earMask = smoothstep(0.22, 0.36, lp.z) * smoothstep(0.42, 0.56, lp.y) * smoothstep(0.08, 0.16, abs(lp.x));
+      if (earMask > 0.001 && amp > 0.01) {
+        lp.y += abs(sin(phase)) * 0.032 * amp * earMask;
+        lp.x += sign(lp.x) * abs(sin(phase)) * 0.025 * amp * earMask;
+      }
+      // Tail gently wags side-to-side
+      float tailMask = clamp((-lp.z - 0.38) / 0.24, 0.0, 1.0);
+      lp.x += sin(wag) * 0.095 * tailMask;
+    }
+
+    vec4 wp = uModel * vec4(lp, 1.0);
     // Only apply wind sway to non-fur foliage (dogs use attribute 3 for volumetric fur length!)
     if (uFurMode < 0.5 && aWind > 0.001) {
       float gust = sin(uTime * 1.9 + wp.x * 0.45 + wp.z * 0.35);
@@ -58,9 +89,10 @@
       wp.z += (cos(uTime * 1.6 + wp.z * 0.5) * 0.07) * aWind;
     }
     vWorldPos = wp.xyz;
-    vLocalPos = aPos;
+    vLocalPos = lp;
     vNormal = normalize(mat3(uModel) * aNorm);
     vColor = aColor;
+    vUv = aUv;
     vLightSpacePos = uLightVP * wp;
     gl_Position = uVP * wp;
   }`;
@@ -71,9 +103,12 @@
   in vec3 vLocalPos;
   in vec3 vNormal;
   in vec3 vColor;
+  in vec2 vUv;
   in vec4 vLightSpacePos;
 
   uniform sampler2D uShadowMap;
+  uniform sampler2D uDiffuseMap;
+  uniform float uHasTex;
   uniform vec3 uSunDir;
   uniform vec3 uSunColor;
   uniform vec3 uSkyColor;
@@ -143,8 +178,12 @@
     vec3 V = normalize(uCameraPos - vWorldPos);
     vec3 H = normalize(L + V);
 
-    // Convert sRGB vertex albedo into linear space for rich, true-to-life lighting!
-    vec3 albedo = pow(max(vColor, vec3(0.0)), vec3(2.2));
+    // Convert sRGB vertex albedo (and optional .glb PBR baseColor texture!) into linear space
+    vec3 baseRgb = vColor;
+    if (uHasTex > 0.5) {
+      baseRgb *= texture(uDiffuseMap, vUv).rgb;
+    }
+    vec3 albedo = pow(max(baseRgb, vec3(0.0)), vec3(2.2));
 
     // Procedural per-pixel micro-fur synthesis for ultra-realistic Pixel & Pocky coats!
     float specMod = 1.0;
@@ -580,9 +619,9 @@
 
       this.mainLoc = {};
       for (const name of [
-        'uVP','uModel','uLightVP','uTime','uShadowMap','uSunDir','uSunColor',
-        'uSkyColor','uGroundColor','uFogColor','uCameraPos','uFogStart','uFogEnd',
-        'uShininess','uSpecStrength','uRimStrength','uFurMode','uEmissive'
+        'uVP','uModel','uLightVP','uTime','uShadowMap','uDiffuseMap','uHasTex','uAnim',
+        'uSunDir','uSunColor','uSkyColor','uGroundColor','uFogColor','uCameraPos',
+        'uFogStart','uFogEnd','uShininess','uSpecStrength','uRimStrength','uFurMode','uEmissive'
       ]) {
         this.mainLoc[name] = gl.getUniformLocation(this.mainProg, name);
       }
@@ -614,6 +653,13 @@
       gl.drawBuffers([gl.NONE]);
       gl.readBuffer(gl.NONE);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+      // 1x1 white fallback diffuse texture bound to TEXTURE1 when meshes don't use UV textures
+      this.whiteTex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, this.whiteTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
       // Fullscreen quad for sky
       this.skyVao = gl.createVertexArray();
@@ -703,6 +749,12 @@
       bindAttr(1, raw.normals, 3);
       bindAttr(2, raw.colors, 3);
       bindAttr(3, raw.winds, 1);
+      if (raw.uvs) {
+        bindAttr(4, raw.uvs, 2);
+      } else {
+        gl.disableVertexAttribArray(4);
+        gl.vertexAttrib2f(4, 0, 0);
+      }
 
       const ib = gl.createBuffer();
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
@@ -772,6 +824,9 @@
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
       gl.uniform1i(this.mainLoc.uShadowMap, 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this.whiteTex);
+      gl.uniform1i(this.mainLoc.uDiffuseMap, 1);
 
       gl.uniformMatrix4fv(this.mainLoc.uVP, false, this.vpMat);
       gl.uniformMatrix4fv(this.mainLoc.uLightVP, false, this.lightVP);
@@ -794,6 +849,15 @@
         gl.uniform1f(this.mainLoc.uSpecStrength, item.specStrength ?? 0.08);
         gl.uniform1f(this.mainLoc.uRimStrength, item.rimStrength ?? 0.12);
         gl.uniform1f(this.mainLoc.uFurMode, item.furMode ?? 0.0);
+        if (item.texture) {
+          gl.activeTexture(gl.TEXTURE1);
+          gl.bindTexture(gl.TEXTURE_2D, item.texture);
+          gl.uniform1f(this.mainLoc.uHasTex, 1.0);
+        } else {
+          gl.uniform1f(this.mainLoc.uHasTex, 0.0);
+        }
+        const an = item.anim || [0, 0, 0, 0];
+        gl.uniform4f(this.mainLoc.uAnim, an[0], an[1], an[2], an[3]);
         const em = item.emissive || [0, 0, 0];
         gl.uniform3f(this.mainLoc.uEmissive, em[0], em[1], em[2]);
 
