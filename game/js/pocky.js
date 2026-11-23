@@ -515,6 +515,9 @@
       this.vel = { x: 0, y: 0, z: 0 };
       this.yaw = 0; // facing +Z toward Pixel!
       this.speed = 0;
+      this.maxWalkSpeed = 6.2;
+      this.maxSprintSpeed = 10.6;
+      this.isSprinting = false;
       this.grounded = true;
 
       // Chase game state
@@ -636,6 +639,170 @@
         this.pos.y + ly,
         this.pos.z - sy * lx + cy * lz,
       ];
+    }
+
+    celebrateTreat() {
+      this.squash = 1.15;
+    }
+
+    // Playable third-person control for Pocky in Multiplayer!
+    updatePlayerControlled(dt, input, cameraYaw, world, audio, spawnParticles) {
+      if (this.bitten) {
+        this.biteAnimTime = (this.biteAnimTime || 0) + dt;
+        this.speed = 0;
+        this.vel.x = this.vel.z = this.vel.y = 0;
+        if (this.chompLanded) {
+          const tAfter = Math.max(0, this.biteAnimTime - 0.34);
+          this.headLookYaw = damp(this.headLookYaw, 0.36 + Math.sin(tAfter * 12.5) * 0.16, 14, dt);
+          this.bodyRoll = damp(this.bodyRoll, -0.14 - Math.sin(tAfter * 9.5) * 0.08, 12, dt);
+          if (tAfter > 1.7) this.barkText = 'HEY!! LET GO!!';
+        } else {
+          this.headLookYaw = damp(this.headLookYaw, 0.45, 14, dt);
+        }
+        this.tailPhase += 18 * dt;
+        this.squash = damp(this.squash, 1.0, 11, dt);
+        if (this.barkTimer > 0) this.barkTimer = Math.max(0, this.barkTimer - dt);
+        if (this.barkBubbleTimer > 0) this.barkBubbleTimer = Math.max(0, this.barkBubbleTimer - dt);
+        return;
+      }
+
+      let moveForward = (input.forward ? 1 : 0) - (input.backward ? 1 : 0);
+      let moveRight = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      let analogMag = 0;
+      if (input.joyActive && input.joyMag > 0.08) {
+        moveForward = -input.joyY;
+        moveRight = input.joyX;
+        analogMag = clamp(input.joyMag, 0, 1);
+      }
+
+      const hasMove = Math.abs(moveForward) > 0.05 || Math.abs(moveRight) > 0.05;
+      const autoSprint = analogMag > 0.72;
+      this.isSprinting = hasMove && (input.sprint || autoSprint);
+      const baseTarget = this.isSprinting ? this.maxSprintSpeed : this.maxWalkSpeed;
+      const targetSpeed = hasMove ? (analogMag > 0 ? lerp(2.0, baseTarget, analogMag) : baseTarget) : 0;
+
+      const camFwdX = -Math.sin(cameraYaw), camFwdZ = -Math.cos(cameraYaw);
+      const camRightX = Math.cos(cameraYaw), camRightZ = -Math.sin(cameraYaw);
+      let dirX = camFwdX * moveForward + camRightX * moveRight;
+      let dirZ = camFwdZ * moveForward + camRightZ * moveRight;
+      const dLen = Math.hypot(dirX, dirZ);
+
+      const prevYaw = this.yaw;
+      if (dLen > 0.01) {
+        dirX /= dLen; dirZ /= dLen;
+        this.yaw = dampAngle(this.yaw, Math.atan2(dirX, dirZ), this.isSprinting ? 11.5 : 9.2, dt);
+      }
+      const yawDelta = Math.atan2(Math.sin(this.yaw - prevYaw), Math.cos(this.yaw - prevYaw));
+      this.turnRate = damp(this.turnRate, clamp(yawDelta / Math.max(dt, 0.001), -5, 5), 10, dt);
+
+      const accel = hasMove ? (this.isSprinting ? 14 : 11) : 13;
+      this.speed = damp(this.speed, targetSpeed, accel, dt);
+      const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+      this.vel.x = fx * this.speed;
+      this.vel.z = fz * this.speed;
+
+      if (input.jumpPressed && this.grounded) {
+        this.vel.y = this.isSprinting ? 7.4 : 6.6;
+        this.grounded = false;
+        this.squash = 1.18;
+        if (audio) audio.playJump();
+        if (spawnParticles) spawnParticles('dust', this.pos.x, this.pos.y + 0.1, this.pos.z);
+      }
+
+      this.vel.y -= 20.5 * dt;
+      this.pos.x += this.vel.x * dt;
+      this.pos.z += this.vel.z * dt;
+      this.pos.y += this.vel.y * dt;
+
+      world.resolveCollisions(this.pos, 0.50);
+      const groundY = world.getHeight(this.pos.x, this.pos.z);
+      if (this.pos.y <= groundY) {
+        if (!this.grounded && this.vel.y < -2.2) {
+          this.squash = 0.85;
+          if (audio) audio.playFootstep(world.isOnTrail(this.pos.x, this.pos.z), 0.7);
+          if (spawnParticles) spawnParticles('dust', this.pos.x, groundY + 0.08, this.pos.z);
+        }
+        this.pos.y = groundY;
+        this.vel.y = 0;
+        this.grounded = true;
+      } else {
+        this.grounded = false;
+      }
+
+      const hFront = world.getHeight(this.pos.x + fx * 0.48, this.pos.z + fz * 0.48);
+      const hBack  = world.getHeight(this.pos.x - fx * 0.48, this.pos.z - fz * 0.48);
+      this.groundPitch = damp(this.groundPitch, this.grounded ? clamp(Math.atan2(hBack - hFront, 0.96), -0.45, 0.45) : clamp(-this.vel.y * 0.055, -0.35, 0.35), 10, dt);
+
+      const prevPhase = this.gaitPhase;
+      if (this.speed > 0.25 && this.grounded) {
+        const freq = lerp(8.2, 14.5, clamp(this.speed / this.maxSprintSpeed, 0, 1));
+        this.gaitPhase += freq * dt;
+        if (Math.floor(this.gaitPhase / Math.PI) > Math.floor(prevPhase / Math.PI)) {
+          if (audio) audio.playFootstep(world.isOnTrail(this.pos.x, this.pos.z), clamp(this.speed / this.maxSprintSpeed, 0.25, 1));
+          if (spawnParticles && (this.isSprinting || Math.random() < 0.55)) {
+            spawnParticles(this.isSprinting ? 'zoomies' : 'dust', this.pos.x - fx * 0.35, groundY + 0.08, this.pos.z - fz * 0.35);
+          }
+        }
+      }
+
+      this.state = this.speed > 0.5 ? 'flee' : 'taunt';
+      this.tailPhase += (this.speed > 0.5 ? 12.5 : 8.0) * dt;
+      const runInt = clamp(this.speed / this.maxSprintSpeed, 0, 1);
+      const targetEar = this.grounded ? Math.abs(Math.sin(this.gaitPhase)) * 0.34 * runInt + (this.barkTimer > 0 ? 0.24 : 0) : 0.32;
+      this.earBounceVel += ((targetEar - this.earBounce) * 95 - this.earBounceVel * 11) * dt;
+      this.earBounce = clamp(this.earBounce + this.earBounceVel * dt, -0.1, 0.45);
+      this.bodyRoll = damp(this.bodyRoll, clamp(-this.turnRate * 0.08 * runInt, -0.25, 0.25), 9, dt);
+      this.headLookYaw = damp(this.headLookYaw, clamp(this.turnRate * 0.12, -0.38, 0.38), 8, dt);
+      this.squash = damp(this.squash, 1.0, 11, dt);
+      if (this.barkTimer > 0) this.barkTimer = Math.max(0, this.barkTimer - dt);
+      if (this.barkBubbleTimer > 0) this.barkBubbleTimer = Math.max(0, this.barkBubbleTimer - dt);
+    }
+
+    // Smoothly mirror remote player's Pocky in P2P multiplayer!
+    applyRemoteState(dt, remote, world, spawnParticles) {
+      if (this.bitten) {
+        this.updatePlayerControlled(dt, { forward: false, backward: false, left: false, right: false, sprint: false, jumpPressed: false }, 0, world, null, null);
+        return;
+      }
+      if (!remote) return;
+      const prevYaw = this.yaw;
+      this.pos.x = damp(this.pos.x, remote.x, 18, dt);
+      this.pos.y = damp(this.pos.y, remote.y, 18, dt);
+      this.pos.z = damp(this.pos.z, remote.z, 18, dt);
+      this.yaw = dampAngle(this.yaw, remote.yaw, 16, dt);
+      this.speed = damp(this.speed, remote.spd || 0, 14, dt);
+      this.grounded = !!remote.gnd;
+      this.isSprinting = !!remote.spr;
+
+      const yawDelta = Math.atan2(Math.sin(this.yaw - prevYaw), Math.cos(this.yaw - prevYaw));
+      this.turnRate = damp(this.turnRate, clamp(yawDelta / Math.max(dt, 0.001), -5, 5), 10, dt);
+
+      const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+      const hFront = world.getHeight(this.pos.x + fx * 0.48, this.pos.z + fz * 0.48);
+      const hBack  = world.getHeight(this.pos.x - fx * 0.48, this.pos.z - fz * 0.48);
+      this.groundPitch = damp(this.groundPitch, this.grounded ? clamp(Math.atan2(hBack - hFront, 0.96), -0.45, 0.45) : 0, 10, dt);
+
+      const prevPhase = this.gaitPhase;
+      if (this.speed > 0.25 && this.grounded) {
+        const freq = lerp(8.2, 14.5, clamp(this.speed / this.maxSprintSpeed, 0, 1));
+        this.gaitPhase += freq * dt;
+        if (Math.floor(this.gaitPhase / Math.PI) > Math.floor(prevPhase / Math.PI)) {
+          if (spawnParticles && this.isSprinting && Math.random() < 0.65) {
+            spawnParticles('zoomies', this.pos.x - fx * 0.35, this.pos.y + 0.08, this.pos.z - fz * 0.35);
+          }
+        }
+      }
+      this.state = this.speed > 0.5 ? 'flee' : 'taunt';
+      this.tailPhase += (this.speed > 0.5 ? 13 : 9) * dt;
+      const runInt = clamp(this.speed / this.maxSprintSpeed, 0, 1);
+      const targetEar = this.grounded ? Math.abs(Math.sin(this.gaitPhase)) * 0.34 * runInt + (this.barkTimer > 0 ? 0.24 : 0) : 0.32;
+      this.earBounceVel += ((targetEar - this.earBounce) * 95 - this.earBounceVel * 11) * dt;
+      this.earBounce = clamp(this.earBounce + this.earBounceVel * dt, -0.1, 0.45);
+      this.bodyRoll = damp(this.bodyRoll, clamp(-this.turnRate * 0.08 * runInt, -0.25, 0.25), 9, dt);
+      this.headLookYaw = damp(this.headLookYaw, clamp(this.turnRate * 0.12, -0.38, 0.38), 8, dt);
+      this.squash = damp(this.squash, 1.0, 11, dt);
+      if (this.barkTimer > 0) this.barkTimer = Math.max(0, this.barkTimer - dt);
+      if (this.barkBubbleTimer > 0) this.barkBubbleTimer = Math.max(0, this.barkBubbleTimer - dt);
     }
 
     // Choose obstacle-free flee direction curving naturally within the forest

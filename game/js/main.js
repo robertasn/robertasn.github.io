@@ -1,17 +1,58 @@
-// Pixel 3D - Main Game Loop, Third-Person Camera, Pixel vs Pocky Chase & Finale
+// Pixel & Pocky 3D - Singleplayer + Serverless P2P Multiplayer Game Loop
 (function () {
   'use strict';
 
   const { clamp, damp, dampAngle, wrapAngle } = window.Math3D;
 
+  // DOM references
   const canvas = document.getElementById('game-canvas');
   const titleOverlay = document.getElementById('title-overlay');
   const victoryOverlay = document.getElementById('victory-overlay');
   const hud = document.getElementById('hud');
+
+  // Menu panels
+  const menuMain = document.getElementById('menu-main');
+  const menuMpChoice = document.getElementById('menu-mp-choice');
+  const menuMpHost = document.getElementById('menu-mp-host');
+  const menuMpJoin = document.getElementById('menu-mp-join');
+
+  // Buttons & lobby controls
   const playBtn = document.getElementById('play-btn');
+  const mpBtn = document.getElementById('mp-btn');
+  const hostBtn = document.getElementById('host-btn');
+  const joinOpenBtn = document.getElementById('join-open-btn');
+  const mpBackBtn = document.getElementById('mp-back-btn');
+  const hostRoomCodeEl = document.getElementById('host-room-code');
+  const copyLinkBtn = document.getElementById('copy-link-btn');
+  const pickPixelBtn = document.getElementById('pick-pixel-btn');
+  const pickPockyBtn = document.getElementById('pick-pocky-btn');
+  const hostRoleSummaryEl = document.getElementById('host-role-summary');
+  const hostStatusEl = document.getElementById('host-status');
+  const hostStartBtn = document.getElementById('host-start-btn');
+  const hostCancelBtn = document.getElementById('host-cancel-btn');
+  const joinCodeInput = document.getElementById('join-code-input');
+  const joinConnectBtn = document.getElementById('join-connect-btn');
+  const joinRoleBox = document.getElementById('join-role-box');
+  const joinRoleSummaryEl = document.getElementById('join-role-summary');
+  const joinSwapBtn = document.getElementById('join-swap-btn');
+  const joinStatusEl = document.getElementById('join-status');
+  const joinCancelBtn = document.getElementById('join-cancel-btn');
+
+  // Victory controls
+  const victoryBadgeEl = document.getElementById('victory-badge');
+  const victoryTitleEl = document.getElementById('victory-title');
+  const victorySubEl = document.getElementById('victory-sub');
+  const victoryStatsEl = document.getElementById('victory-stats');
   const replayBtn = document.getElementById('replay-btn');
+  const swapReplayBtn = document.getElementById('swap-replay-btn');
+  const menuReturnBtn = document.getElementById('menu-return-btn');
+
+  // HUD controls
   const titleHintEl = document.getElementById('title-hint');
+  const hudAvatarEl = document.getElementById('hud-avatar');
+  const hudTitleEl = document.getElementById('hud-title');
   const chasePhaseEl = document.getElementById('chase-phase');
+  const chaseBarWrap = document.getElementById('chase-bar-wrap');
   const chaseTimerEl = document.getElementById('chase-timer');
   const chaseDistEl = document.getElementById('chase-dist');
   const chaseBarFill = document.getElementById('chase-bar-fill');
@@ -19,7 +60,6 @@
   const chompBadgeEl = document.getElementById('chomp-badge');
   const barkBubbleEl = document.getElementById('pocky-bark-bubble');
   const pockyArrowEl = document.getElementById('pocky-arrow');
-  const victoryStatsEl = document.getElementById('victory-stats');
   const toastEl = document.getElementById('toast');
   const muteBtn = document.getElementById('mute-btn');
   const fsBtn = document.getElementById('fs-btn');
@@ -40,9 +80,6 @@
     if (titleHintEl) {
       titleHintEl.textContent = 'Thumb stick to chase (push far for zoomies) • Drag screen to look';
     }
-    if (!document.documentElement.requestFullscreen) {
-      fsBtn.classList.add('no-mobile-fs');
-    }
   }
 
   const renderer = new window.Renderer(canvas, { isMobile });
@@ -50,11 +87,14 @@
   const pixel = new window.PixelDog(renderer);
   const pocky = new window.PockyDog(renderer);
   const audio = new window.SoundEngine();
+  const net = new window.P2PManager();
 
   pixel.reset(world);
   pocky.reset(world);
 
-  // Game state
+  // Game mode & state
+  let gameMode = 'single'; // 'single' | 'multi'
+  let myRole = 'pixel';    // 'pixel' | 'pocky'
   let playing = false;
   let gameWon = false;
   let winElapsed = 0;
@@ -65,7 +105,15 @@
   let speedBoostTimer = 0;
   let camShakeTimer = 0;
 
-  // Third-person spring-follow camera (hero framing both Pixel & Pocky on title screen!)
+  function getMyDog() {
+    return (gameMode === 'multi' && myRole === 'pocky') ? pocky : pixel;
+  }
+
+  function getOtherDog() {
+    return (gameMode === 'multi' && myRole === 'pocky') ? pixel : pocky;
+  }
+
+  // Third-person spring-follow camera
   const cam = {
     yaw: Math.PI * 0.74,
     pitch: 0.14,
@@ -96,7 +144,120 @@
     joyMag: 0,
   };
 
-  // Dynamic gameplay particles
+  // --- Menu Panel Helpers ---
+  function showMenuPanel(panel) {
+    menuMain.classList.add('hidden');
+    menuMpChoice.classList.add('hidden');
+    menuMpHost.classList.add('hidden');
+    menuMpJoin.classList.add('hidden');
+    panel.classList.remove('hidden');
+  }
+
+  function updateLobbyRoleUI() {
+    const hostIsPixel = net.hostRole === 'pixel';
+    pickPixelBtn.classList.toggle('active', hostIsPixel);
+    pickPockyBtn.classList.toggle('active', !hostIsPixel);
+
+    hostRoleSummaryEl.textContent = hostIsPixel
+      ? 'You: Pixel (Chaser) • Friend: Pocky (Runner)'
+      : 'You: Pocky (Runner) • Friend: Pixel (Chaser)';
+
+    joinRoleSummaryEl.textContent = hostIsPixel
+      ? 'You: Pocky (Runner) • Host: Pixel (Chaser)'
+      : 'You: Pixel (Chaser) • Host: Pocky (Runner)';
+
+    myRole = net.myRole;
+  }
+
+  function returnToMainMenu() {
+    net.disconnect();
+    playing = false;
+    gameWon = false;
+    gameMode = 'single';
+    myRole = 'pixel';
+    resetJoystick();
+
+    pixel.reset(world);
+    pocky.reset(world);
+    hud.classList.add('hidden');
+    victoryOverlay.classList.add('hidden');
+    bitePromptEl.classList.add('hidden');
+    chompBadgeEl.classList.add('hidden');
+    barkBubbleEl.classList.add('hidden');
+    pockyArrowEl.classList.add('hidden');
+
+    titleOverlay.classList.remove('hidden');
+    showMenuPanel(menuMain);
+  }
+
+  // --- Wire P2P Events ---
+  net.onStatus = (msg, isErr) => {
+    const el = net.isHost ? hostStatusEl : joinStatusEl;
+    el.textContent = msg;
+    el.classList.toggle('error', !!isErr);
+  };
+
+  net.onPeerConnected = () => {
+    if (net.isHost) {
+      hostStartBtn.disabled = false;
+      hostStartBtn.textContent = 'Start Match!';
+    } else {
+      joinRoleBox.classList.remove('hidden');
+      joinConnectBtn.disabled = true;
+      joinCodeInput.disabled = true;
+    }
+    updateLobbyRoleUI();
+  };
+
+  net.onPeerDisconnected = () => {
+    hostStartBtn.disabled = true;
+    hostStartBtn.textContent = 'Waiting for Friend...';
+    joinRoleBox.classList.add('hidden');
+    joinConnectBtn.disabled = false;
+    joinCodeInput.disabled = false;
+    if (playing) {
+      showToast('Friend disconnected from the forest!', 4.0);
+    }
+  };
+
+  net.onRoleUpdate = () => {
+    updateLobbyRoleUI();
+  };
+
+  net.onMessage = (msg) => {
+    if (msg.t === 'start') {
+      net.hostRole = msg.hostRole === 'pocky' ? 'pocky' : 'pixel';
+      net.myRole = net.isHost ? net.hostRole : (net.hostRole === 'pixel' ? 'pocky' : 'pixel');
+      myRole = net.myRole;
+      startMatch('multi');
+    } else if (msg.t === 'bark') {
+      const other = getOtherDog();
+      if (other === pocky) {
+        pocky.triggerBark(audio, spawnParticles, false);
+        if (msg.text) pocky.barkText = msg.text;
+      } else {
+        pixel.triggerBark(audio, spawnParticles, msg.text);
+      }
+    } else if (msg.t === 'tr') {
+      const treat = world.treats[msg.id];
+      if (treat && !treat.collected) {
+        treat.collected = true;
+        spawnParticles('treat', treat.x, treat.y, treat.z);
+        audio.playTreatChime(false);
+      }
+    } else if (msg.t === 'catch') {
+      if (msg.px) {
+        pixel.pos.x = msg.px[0]; pixel.pos.y = msg.px[1]; pixel.pos.z = msg.px[2]; pixel.yaw = msg.px[3];
+      }
+      if (msg.pk) {
+        pocky.pos.x = msg.pk[0]; pocky.pos.y = msg.pk[1]; pocky.pos.z = msg.pk[2]; pocky.yaw = msg.pk[3];
+      }
+      if (typeof msg.elapsed === 'number') totalRunTime = msg.elapsed;
+      triggerEarBiteVictory(false);
+    }
+  };
+
+  // --- Dynamic Gameplay Particles ---
   const fxParticles = [];
 
   function spawnParticles(kind, x, y, z) {
@@ -210,8 +371,15 @@
     return { visible: onScreen, behind: false, x, y, ndcX, ndcY };
   }
 
-  function startOrRestartGame() {
+  function startMatch(mode) {
     audio.init();
+    gameMode = mode;
+    if (mode === 'single') {
+      myRole = 'pixel';
+    } else {
+      myRole = net.myRole;
+    }
+
     playing = true;
     gameWon = false;
     winElapsed = 0;
@@ -219,9 +387,17 @@
     announcedShrink = false;
     announcedBiteReady = false;
     speedBoostTimer = 0;
+    camShakeTimer = 0;
+    net.remoteState = null;
 
     pixel.reset(world);
     pocky.reset(world);
+    if (mode === 'multi') {
+      // Slightly wider starting face-off in P2P so Pocky has fair reaction time!
+      pocky.pos.x = 0;
+      pocky.pos.z = -10.5;
+      pocky.pos.y = world.getHeight(0, -10.5);
+    }
     for (const t of world.treats) t.collected = false;
 
     titleOverlay.classList.add('hidden');
@@ -229,34 +405,62 @@
     hud.classList.remove('hidden');
     bitePromptEl.classList.add('hidden');
     chompBadgeEl.classList.add('hidden');
-    camShakeTimer = 0;
 
-    // Place camera cleanly behind Pixel facing Pocky down the trail!
-    cam.yaw = 0;
+    // Configure HUD for Singleplayer vs Multiplayer
+    if (mode === 'single') {
+      hudAvatarEl.src = 'assets/pixel-collar.jpg';
+      hudTitleEl.textContent = 'PIXEL vs POCKY';
+      chaseBarWrap.classList.remove('hidden');
+      pockyArrowEl.textContent = 'Pocky 🐾';
+    } else {
+      hudAvatarEl.src = myRole === 'pixel' ? 'assets/pixel-collar.jpg' : 'assets/duo-photo.jpg';
+      hudTitleEl.textContent = myRole === 'pixel' ? 'YOU: PIXEL (P2P)' : 'YOU: POCKY (P2P)';
+      chaseBarWrap.classList.add('hidden');
+      pockyArrowEl.textContent = myRole === 'pixel' ? 'Pocky 🐾' : 'Pixel 🐾';
+    }
+
+    // Place camera smoothly behind the dog YOU control facing the opponent!
+    const me = getMyDog();
+    cam.yaw = wrapAngle(me.yaw - Math.PI);
     cam.pitch = 0.25;
     cam.targetDist = 4.6;
     cam.dist = 4.6;
-    cam.pos[0] = pixel.pos.x;
-    cam.pos[1] = pixel.pos.y + 1.9;
-    cam.pos[2] = pixel.pos.z + 4.5;
-    cam.lookAt[0] = pixel.pos.x;
-    cam.lookAt[1] = pixel.pos.y + 0.7;
-    cam.lookAt[2] = pixel.pos.z - 1.5;
+    cam.pos[0] = me.pos.x + Math.sin(cam.yaw) * 4.5;
+    cam.pos[1] = me.pos.y + 1.9;
+    cam.pos[2] = me.pos.z + Math.cos(cam.yaw) * 4.5;
+    cam.lookAt[0] = me.pos.x;
+    cam.lookAt[1] = me.pos.y + 0.7;
+    cam.lookAt[2] = me.pos.z;
 
-    showToast('Pocky is barking ahead! Chase Pocky through the forest!', 3.6);
+    if (mode === 'single') {
+      showToast('Pocky is barking ahead! Chase Pocky through the forest!', 3.4);
+    } else if (myRole === 'pixel') {
+      showToast('P2P Match! Chase down your friend (Pocky) and touch them!', 3.6);
+    } else {
+      showToast('P2P Match! Run from Pixel & grab golden treats for speed boosts!', 3.6);
+    }
   }
 
-  function triggerEarBiteVictory() {
+  function triggerEarBiteVictory(shouldBroadcast = true) {
     if (gameWon) return;
     gameWon = true;
     winElapsed = 0;
     bitePromptEl.classList.add('hidden');
     pockyArrowEl.classList.add('hidden');
+    resetJoystick();
+
+    if (gameMode === 'multi' && shouldBroadcast && net.isHost) {
+      net.send({
+        t: 'catch',
+        px: [pixel.pos.x, pixel.pos.y, pixel.pos.z, pixel.yaw],
+        pk: [pocky.pos.x, pocky.pos.y, pocky.pos.z, pocky.yaw],
+        elapsed: totalRunTime,
+      });
+    }
 
     pocky.onEarBittenStart();
-    audio.playJump(); // pounce whoosh!
+    audio.playJump();
     pixel.startEarBite(pocky, world, () => {
-      // Fires right at jaw snap impact!
       pocky.onChompLanded(audio, spawnParticles);
       camShakeTimer = 0.28;
       chompBadgeEl.textContent = 'CHOMP!!';
@@ -264,13 +468,137 @@
       showToast("CHOMP!! Pixel bit Pocky's ear!!", 2.6);
     });
 
-    const chaseSec = Math.round(pocky.chaseTime);
-    const totalSec = Math.round(totalRunTime);
-    victoryStatsEl.textContent = `Chased for ${chaseSec}s  •  Total time ${totalSec}s  •  Pocky barks: ${pocky.barkCount}`;
+    // Configure Victory Card for Singleplayer vs Multiplayer roles
+    if (gameMode === 'single') {
+      victoryBadgeEl.textContent = 'EAR CHOMPED!';
+      victoryTitleEl.textContent = 'Pixel Got Pocky!';
+      victorySubEl.textContent = "Pixel caught up and playfully bit Pocky's floppy ear!";
+      const chaseSec = Math.round(pocky.chaseTime);
+      const totalSec = Math.round(totalRunTime);
+      victoryStatsEl.textContent = `Chased for ${chaseSec}s  •  Total time ${totalSec}s  •  Pocky barks: ${pocky.barkCount}`;
+      replayBtn.classList.remove('hidden');
+      replayBtn.disabled = false;
+      replayBtn.textContent = 'Chase Again';
+      swapReplayBtn.classList.add('hidden');
+    } else {
+      const secs = totalRunTime.toFixed(1);
+      if (myRole === 'pixel') {
+        victoryBadgeEl.textContent = 'YOU CAUGHT POCKY!';
+        victoryTitleEl.textContent = 'Pixel Wins!';
+        victorySubEl.textContent = "You chased down your friend and chomped Pocky's ear!";
+      } else {
+        victoryBadgeEl.textContent = 'EAR CHOMPED!';
+        victoryTitleEl.textContent = 'Pixel Caught You!';
+        victorySubEl.textContent = `You stayed away from Pixel for ${secs}s before getting chomped!`;
+      }
+      victoryStatsEl.textContent = `Match duration: ${secs}s  •  Peer-to-Peer Forest Tag`;
+
+      if (net.isHost) {
+        replayBtn.classList.remove('hidden');
+        replayBtn.disabled = false;
+        replayBtn.textContent = 'Rematch';
+        swapReplayBtn.classList.remove('hidden');
+      } else {
+        replayBtn.classList.remove('hidden');
+        replayBtn.disabled = true;
+        replayBtn.textContent = 'Waiting for Host to Rematch...';
+        swapReplayBtn.classList.add('hidden');
+      }
+    }
   }
 
-  playBtn.addEventListener('click', startOrRestartGame);
-  replayBtn.addEventListener('click', startOrRestartGame);
+  // --- Menu & Lobby Button Events ---
+  playBtn.addEventListener('click', () => startMatch('single'));
+
+  mpBtn.addEventListener('click', () => {
+    audio.init();
+    showMenuPanel(menuMpChoice);
+  });
+
+  mpBackBtn.addEventListener('click', () => showMenuPanel(menuMain));
+
+  hostBtn.addEventListener('click', () => {
+    showMenuPanel(menuMpHost);
+    hostStartBtn.disabled = true;
+    hostStartBtn.textContent = 'Waiting for Friend...';
+    net.hostRoom('pixel');
+    hostRoomCodeEl.textContent = net.roomCode || '----';
+    updateLobbyRoleUI();
+  });
+
+  copyLinkBtn.addEventListener('click', () => {
+    const url = net.getInviteUrl();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(() => {
+        copyLinkBtn.textContent = 'Link Copied!';
+        setTimeout(() => { copyLinkBtn.textContent = 'Copy Invite Link'; }, 1800);
+      }).catch(() => {
+        prompt('Share this link with your friend:', url);
+      });
+    } else {
+      prompt('Share this link with your friend:', url);
+    }
+  });
+
+  pickPixelBtn.addEventListener('click', () => net.setHostRole('pixel'));
+  pickPockyBtn.addEventListener('click', () => net.setHostRole('pocky'));
+
+  hostStartBtn.addEventListener('click', () => {
+    if (!net.connected) return;
+    net.send({ t: 'start', hostRole: net.hostRole });
+    startMatch('multi');
+  });
+
+  hostCancelBtn.addEventListener('click', () => {
+    net.disconnect();
+    showMenuPanel(menuMpChoice);
+  });
+
+  joinOpenBtn.addEventListener('click', () => {
+    showMenuPanel(menuMpJoin);
+    joinRoleBox.classList.add('hidden');
+    joinConnectBtn.disabled = false;
+    joinCodeInput.disabled = false;
+    joinStatusEl.textContent = 'Enter the 4-letter code from your friend.';
+    joinStatusEl.classList.remove('error');
+    setTimeout(() => joinCodeInput.focus(), 50);
+  });
+
+  joinConnectBtn.addEventListener('click', () => {
+    net.joinRoom(joinCodeInput.value);
+  });
+
+  joinCodeInput.addEventListener('keydown', (e) => {
+    if (e.code === 'Enter') net.joinRoom(joinCodeInput.value);
+  });
+
+  joinSwapBtn.addEventListener('click', () => {
+    net.requestSwapRoles();
+  });
+
+  joinCancelBtn.addEventListener('click', () => {
+    net.disconnect();
+    showMenuPanel(menuMpChoice);
+  });
+
+  replayBtn.addEventListener('click', () => {
+    if (gameMode === 'single') {
+      startMatch('single');
+    } else if (net.isHost && net.connected) {
+      net.send({ t: 'start', hostRole: net.hostRole });
+      startMatch('multi');
+    }
+  });
+
+  swapReplayBtn.addEventListener('click', () => {
+    if (gameMode === 'multi' && net.isHost && net.connected) {
+      net.setHostRole(net.hostRole === 'pixel' ? 'pocky' : 'pixel');
+      net.send({ t: 'start', hostRole: net.hostRole });
+      startMatch('multi');
+    }
+  });
+
+  menuReturnBtn.addEventListener('click', returnToMainMenu);
 
   muteBtn.addEventListener('click', () => {
     audio.init();
@@ -288,15 +616,43 @@
     fsBtn.blur();
   });
 
+  function triggerLocalBarkOrBite() {
+    audio.init();
+    if (gameMode === 'single') {
+      if (pocky.canBite && Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z) < 2.6) {
+        input.bitePressed = true;
+      } else {
+        pixel.triggerBark(audio, spawnParticles);
+      }
+    } else {
+      const me = getMyDog();
+      if (me === pocky) {
+        pocky.triggerBark(audio, spawnParticles, false);
+        net.send({ t: 'bark', text: pocky.barkText });
+      } else {
+        if (pixel.triggerBark(audio, spawnParticles)) {
+          net.send({ t: 'bark', text: pixel.barkText });
+        }
+      }
+    }
+  }
+
   // Keyboard controls
   window.addEventListener('keydown', (e) => {
-    if (!playing && (e.code === 'Enter' || e.code === 'Space')) {
+    // Allow typing inside room code input cleanly!
+    if (document.activeElement === joinCodeInput) return;
+
+    if (!playing && !menuMain.classList.contains('hidden') && (e.code === 'Enter' || e.code === 'Space')) {
       e.preventDefault();
-      startOrRestartGame();
+      startMatch('single');
       return;
     }
-    if (gameWon && e.code === 'Enter' && winElapsed > 1.4) {
-      startOrRestartGame();
+    if (gameWon && e.code === 'Enter' && winElapsed > 2.2) {
+      if (gameMode === 'single') startMatch('single');
+      else if (net.isHost && net.connected) {
+        net.send({ t: 'start', hostRole: net.hostRole });
+        startMatch('multi');
+      }
       return;
     }
     if (!playing || gameWon) return;
@@ -309,7 +665,7 @@
       case 'ShiftLeft': case 'ShiftRight': input.sprint = true; break;
       case 'Space':
         e.preventDefault();
-        if (pocky.canBite && Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z) < 2.4) {
+        if (gameMode === 'single' && pocky.canBite && Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z) < 2.4) {
           input.bitePressed = true;
         } else {
           input.jumpPressed = true;
@@ -317,22 +673,17 @@
         break;
       case 'KeyQ': input.camLeft = true; break;
       case 'KeyE':
-        if (pocky.canBite && Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z) < 2.4) {
+        if (gameMode === 'single' && pocky.canBite && Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z) < 2.4) {
           input.bitePressed = true;
         } else {
           input.camRight = true;
         }
         break;
       case 'KeyB': case 'KeyF':
-        audio.init();
-        if (pocky.canBite && Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z) < 2.4) {
-          input.bitePressed = true;
-        } else {
-          pixel.triggerBark(audio, spawnParticles);
-        }
+        triggerLocalBarkOrBite();
         break;
       case 'KeyR':
-        startOrRestartGame();
+        if (gameMode === 'single') startMatch('single');
         break;
       case 'KeyM':
         audio.init();
@@ -356,11 +707,11 @@
     }
   });
 
-  // Mouse drag to orbit + click to bite when ready + scroll to zoom
+  // Mouse drag to orbit + click to bite + scroll to zoom
   canvas.addEventListener('mousedown', (e) => {
     if (!playing || gameWon) return;
     audio.init();
-    if (pocky.canBite && Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z) < 2.5) {
+    if (gameMode === 'single' && pocky.canBite && Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z) < 2.5) {
       input.bitePressed = true;
       return;
     }
@@ -386,11 +737,10 @@
 
   canvas.addEventListener('dblclick', () => {
     if (!playing || gameWon || isMobile) return;
-    audio.init();
-    pixel.triggerBark(audio, spawnParticles);
+    triggerLocalBarkOrBite();
   });
 
-  // --- Mobile Multi-Touch Controls (Virtual Joystick + Buttons + Touch-Drag Look + Pinch Zoom) ---
+  // --- Mobile Multi-Touch Controls ---
   let joyTouchId = null;
   let camTouchId = null;
   let camLastTouchX = 0;
@@ -439,9 +789,7 @@
     mobileJoystickEl.addEventListener('touchmove', (e) => {
       e.preventDefault();
       for (const t of e.changedTouches) {
-        if (t.identifier === joyTouchId) {
-          updateJoystickFromPoint(t.clientX, t.clientY);
-        }
+        if (t.identifier === joyTouchId) updateJoystickFromPoint(t.clientX, t.clientY);
       }
     }, { passive: false });
 
@@ -467,16 +815,10 @@
     mobileBarkBtn.addEventListener('touchstart', (e) => {
       e.preventDefault();
       if (!playing || gameWon) return;
-      audio.init();
-      if (pocky.canBite && Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z) < 2.6) {
-        input.bitePressed = true;
-      } else {
-        pixel.triggerBark(audio, spawnParticles);
-      }
+      triggerLocalBarkOrBite();
     }, { passive: false });
   }
 
-  // Canvas touch-drag to orbit camera & 2-finger pinch to zoom
   canvas.addEventListener('touchstart', (e) => {
     if (!playing || gameWon) return;
     audio.init();
@@ -530,6 +872,16 @@
   canvas.addEventListener('touchend', endCamTouch);
   canvas.addEventListener('touchcancel', endCamTouch);
 
+  // Auto-open Join panel if someone opens an invite link (?join=XXXX)
+  try {
+    const joinParam = new URLSearchParams(window.location.search).get('join');
+    if (joinParam && joinParam.trim().length >= 4) {
+      showMenuPanel(menuMpJoin);
+      joinCodeInput.value = joinParam.toUpperCase().slice(0, 6);
+      setTimeout(() => net.joinRoom(joinCodeInput.value), 300);
+    }
+  } catch {}
+
   // --- Main Animation Loop ---
   let lastTime = null;
   const drawList = [];
@@ -542,101 +894,129 @@
     lastTime = now;
     const time = now * 0.001;
 
+    const myDog = getMyDog();
+    const otherDog = getOtherDog();
+
     if (playing && !gameWon) {
       totalRunTime += dt;
       if (input.camLeft)  { cam.yaw += 1.9 * dt; cam.manualOrbitCooldown = 1.2; }
       if (input.camRight) { cam.yaw -= 1.9 * dt; cam.manualOrbitCooldown = 1.2; }
       if (cam.manualOrbitCooldown > 0) cam.manualOrbitCooldown -= dt;
 
-      // Optional forest treat mini zoomies boost
+      // Speed boost from golden forest treats applies to local controlled dog
       if (speedBoostTimer > 0) {
         speedBoostTimer = Math.max(0, speedBoostTimer - dt);
-        pixel.maxSprintSpeed = 12.2;
+        myDog.maxSprintSpeed = 12.5;
       } else {
-        pixel.maxSprintSpeed = 10.6;
+        myDog.maxSprintSpeed = 10.6;
       }
 
-      pixel.update(dt, input, cam.yaw, world, audio, spawnParticles);
-      pocky.update(dt, time, pixel, world, audio, spawnParticles, true);
+      if (gameMode === 'single') {
+        pixel.update(dt, input, cam.yaw, world, audio, spawnParticles);
+        pocky.update(dt, time, pixel, world, audio, spawnParticles, true);
+      } else {
+        // P2P Multiplayer: update my controlled dog locally, mirror friend's dog from WebRTC!
+        if (myRole === 'pixel') {
+          pixel.update(dt, input, cam.yaw, world, audio, spawnParticles);
+          pocky.applyRemoteState(dt, net.remoteState, world, spawnParticles);
+          net.tickSendState(dt, pixel);
+        } else {
+          pocky.updatePlayerControlled(dt, input, cam.yaw, world, audio, spawnParticles);
+          pixel.applyRemoteState(dt, net.remoteState, world, spawnParticles);
+          net.tickSendState(dt, pocky);
+        }
+      }
       input.jumpPressed = false;
 
-      // Keep camera gently following behind Pixel while running
+      // Gently auto-follow camera behind the dog YOU control while running
       const steeringLeftRight = input.left || input.right || (input.joyActive && Math.abs(input.joyX) > 0.25);
       const backingUp = input.backward || (input.joyActive && input.joyY > 0.55);
-      if (!cam.dragging && camTouchId === null && cam.manualOrbitCooldown <= 0 && pixel.speed > 1.2 && !backingUp) {
-        const behindPixelYaw = wrapAngle(pixel.yaw - Math.PI);
+      if (!cam.dragging && camTouchId === null && cam.manualOrbitCooldown <= 0 && myDog.speed > 1.2 && !backingUp) {
+        const behindYaw = wrapAngle(myDog.yaw - Math.PI);
         const turnAssist = steeringLeftRight ? 1.65 : 0.85;
-        cam.yaw = dampAngle(cam.yaw, behindPixelYaw, turnAssist, dt);
+        cam.yaw = dampAngle(cam.yaw, behindYaw, turnAssist, dt);
       }
 
-      // Check chase phase milestone notifications (10s shrink, 20s bite-ready!)
-      const shrinkSec = window.PockyDog.SHRINK_START_SEC;
-      const readySec = window.PockyDog.BITE_READY_SEC;
-      if (!announcedShrink && pocky.chaseTime >= shrinkSec) {
-        announcedShrink = true;
-        showToast("10s chased! Pocky is tiring — the distance is shrinking!", 3.2);
-      }
-      if (!announcedBiteReady && pocky.canBite) {
-        announcedBiteReady = true;
-        showToast("20s chased! Catch up and BITE Pocky's ear!", 3.8);
-      }
-
-      // Check distance to Pocky for Ear-Bite finale!
-      const distToPocky = Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z);
-      const inBiteRange = pocky.canBite && distToPocky < 2.6;
-      if (mobileBarkBtn) {
-        mobileBarkBtn.classList.toggle('bite-ready', inBiteRange);
-        mobileBarkBtn.textContent = inBiteRange ? 'BITE\nEAR!' : 'BARK';
-      }
-      if (inBiteRange) {
-        if (isMobile) {
-          bitePromptEl.innerHTML = 'Tap <strong>BITE EAR!</strong> or run right in!';
-        }
-        bitePromptEl.classList.remove('hidden');
-        if (input.bitePressed || distToPocky < 1.25) {
-          resetJoystick();
-          triggerEarBiteVictory();
-        }
-      } else {
-        bitePromptEl.classList.add('hidden');
-      }
-      input.bitePressed = false;
-
-      // Bonus forest treats give a fun sparkle & short zoomies boost!
-      for (const t of world.treats) {
+      // Bonus forest treat pickups (synced over P2P in multiplayer!)
+      for (let i = 0; i < world.treats.length; i++) {
+        const t = world.treats[i];
         if (t.collected) continue;
-        const dx = pixel.pos.x - t.x;
-        const dz = pixel.pos.z - t.z;
-        const dy = (pixel.pos.y + 0.5) - t.y;
+        const dx = myDog.pos.x - t.x;
+        const dz = myDog.pos.z - t.z;
+        const dy = (myDog.pos.y + 0.5) - t.y;
         if (dx * dx + dz * dz + dy * dy < 1.35 * 1.35) {
           t.collected = true;
-          speedBoostTimer = 2.0;
-          pixel.celebrateTreat();
+          speedBoostTimer = 2.2;
+          myDog.celebrateTreat();
           spawnParticles('treat', t.x, t.y, t.z);
           audio.playTreatChime(false);
-          showToast('Treat snack! Tiny zoomies boost!', 1.8);
+          if (gameMode === 'multi') net.send({ t: 'tr', id: i });
+          showToast('Treat snack! Zoomies speed boost!', 1.8);
         }
       }
 
-      // Update Chase HUD!
-      const pct = clamp((pocky.chaseTime / readySec) * 100, 0, 100);
-      chaseBarFill.style.width = `${pct.toFixed(1)}%`;
-      chaseBarFill.classList.toggle('closing', pocky.chaseTime >= shrinkSec && !pocky.canBite);
-      chaseBarFill.classList.toggle('ready', pocky.canBite);
+      const distBetween = Math.hypot(pixel.pos.x - pocky.pos.x, pixel.pos.z - pocky.pos.z);
+      chaseDistEl.textContent = `${distBetween.toFixed(1)}m away`;
 
-      chaseTimerEl.textContent = `${Math.min(pocky.chaseTime, readySec).toFixed(1)}s / ${readySec}s`;
-      chaseDistEl.textContent = `${distToPocky.toFixed(1)}m away`;
+      if (gameMode === 'single') {
+        // Singleplayer 10s + 10s progression
+        const shrinkSec = window.PockyDog.SHRINK_START_SEC;
+        const readySec = window.PockyDog.BITE_READY_SEC;
+        if (!announcedShrink && pocky.chaseTime >= shrinkSec) {
+          announcedShrink = true;
+          showToast("10s chased! Pocky is tiring — the distance is shrinking!", 3.2);
+        }
+        if (!announcedBiteReady && pocky.canBite) {
+          announcedBiteReady = true;
+          showToast("20s chased! Catch up and BITE Pocky's ear!", 3.8);
+        }
 
-      if (pocky.canBite) {
-        chasePhaseEl.textContent = "Bite Pocky's ear!";
-      } else if (pocky.state === 'taunt') {
-        chasePhaseEl.textContent = 'Pocky stopped & is barking at you!';
-      } else if (pocky.chaseTime >= shrinkSec) {
-        chasePhaseEl.textContent = 'Closing in on Pocky!';
+        const inBiteRange = pocky.canBite && distBetween < 2.6;
+        if (mobileBarkBtn) {
+          mobileBarkBtn.classList.toggle('bite-ready', inBiteRange);
+          mobileBarkBtn.textContent = inBiteRange ? 'BITE\nEAR!' : 'BARK';
+        }
+        if (inBiteRange) {
+          if (isMobile) bitePromptEl.innerHTML = 'Tap <strong>BITE EAR!</strong> or run right in!';
+          bitePromptEl.classList.remove('hidden');
+          if (input.bitePressed || distBetween < 1.25) {
+            triggerEarBiteVictory(false);
+          }
+        } else {
+          bitePromptEl.classList.add('hidden');
+        }
+
+        const pct = clamp((pocky.chaseTime / readySec) * 100, 0, 100);
+        chaseBarFill.style.width = `${pct.toFixed(1)}%`;
+        chaseBarFill.classList.toggle('closing', pocky.chaseTime >= shrinkSec && !pocky.canBite);
+        chaseBarFill.classList.toggle('ready', pocky.canBite);
+        chaseTimerEl.textContent = `${Math.min(pocky.chaseTime, readySec).toFixed(1)}s / ${readySec}s`;
+
+        if (pocky.canBite) chasePhaseEl.textContent = "Bite Pocky's ear!";
+        else if (pocky.state === 'taunt') chasePhaseEl.textContent = 'Pocky stopped & is barking at you!';
+        else if (pocky.chaseTime >= shrinkSec) chasePhaseEl.textContent = 'Closing in on Pocky!';
+        else chasePhaseEl.textContent = 'Chasing Pocky...';
       } else {
-        chasePhaseEl.textContent = 'Chasing Pocky...';
+        // Multiplayer: Pixel tries to touch Pocky!
+        const mins = Math.floor(totalRunTime / 60);
+        const secs = Math.floor(totalRunTime % 60).toString().padStart(2, '0');
+        chasePhaseEl.textContent = myRole === 'pixel'
+          ? `Catch & touch Pocky! (${mins}:${secs})`
+          : `Escape from Pixel! (${mins}:${secs})`;
+
+        if (mobileBarkBtn) {
+          mobileBarkBtn.classList.remove('bite-ready');
+          mobileBarkBtn.textContent = 'BARK';
+        }
+        bitePromptEl.classList.add('hidden');
+
+        // Host authoritative touch check so both peers trigger the ear-chomp in sync!
+        if (net.isHost && totalRunTime > 0.8 && distBetween < 1.32) {
+          triggerEarBiteVictory(true);
+        }
       }
 
+      input.bitePressed = false;
       audio.update(dt);
     } else if (gameWon) {
       winElapsed += dt;
@@ -644,13 +1024,11 @@
       pixel.update(dt, input, cam.yaw, world, null, null);
       pocky.update(dt, time, pixel, world, null, null, true);
 
-      // Smoothly glide camera around to tight front close-up on the ear-chomp!
       const targetWinYaw = pocky.yaw - 0.14 + Math.sin(winElapsed * 0.7) * 0.22;
       cam.yaw = dampAngle(cam.yaw, targetWinYaw, 5.5, dt);
       cam.pitch = damp(cam.pitch, 0.16, 5.5, dt);
       cam.targetDist = 1.85;
 
-      // Cycle comic chomp text playfully during ear-tug!
       if (pocky.chompLanded) {
         if (winElapsed > 1.55) chompBadgeEl.textContent = 'NOM! NOM!';
         if (Math.random() < dt * 3.5) {
@@ -663,7 +1041,7 @@
         victoryOverlay.classList.remove('hidden');
       }
     } else {
-      // Title screen: Pixel & Pocky face off across the sunlit clearing!
+      // Title screen orbit
       pixel.update(dt, { forward: false, backward: false, left: false, right: false, sprint: false, jumpPressed: false }, cam.yaw, world, null, null);
       pocky.update(dt, time, pixel, world, null, null, false);
       cam.yaw = Math.PI * 0.74 + Math.sin(time * 0.35) * 0.24;
@@ -671,15 +1049,14 @@
       cam.targetDist = 3.1;
     }
 
-    // Smooth camera positioning & terrain collision clearance (adapts for portrait phones!)
+    // Camera positioning & terrain clearance
     const isPortrait = window.innerHeight > window.innerWidth;
     const portraitExtraDist = (isPortrait && playing && !gameWon) ? 0.85 : (isPortrait && !playing ? 1.05 : 0);
-    const sprintFovPull = (playing && !gameWon && pixel.isSprinting) ? 0.5 : 0;
+    const sprintFovPull = (playing && !gameWon && myDog.isSprinting) ? 0.5 : 0;
     cam.dist = damp(cam.dist, cam.targetDist + portraitExtraDist + sprintFovPull, 6, dt);
 
     let lookTargetX, lookTargetY, lookTargetZ;
     if (gameWon) {
-      // Frame the ear-chomping duo cleanly (right half on desktop, upper half on portrait phones!)
       const earPt = pocky.getLeftEarTipWorldPos();
       const rightX = Math.cos(cam.yaw);
       const rightZ = -Math.sin(cam.yaw);
@@ -690,13 +1067,14 @@
       lookTargetY = earPt[1] + cardOffsetY;
       lookTargetZ = earPt[2] + rightZ * cardOffsetX;
     } else {
+      const focusDog = playing ? myDog : pixel;
       const rightX = Math.cos(cam.yaw);
       const rightZ = -Math.sin(cam.yaw);
       const titleOffsetX = (!playing && !isPortrait) ? -0.58 : 0;
       const titleOffsetY = (!playing && isPortrait) ? 0.18 : 0.62;
-      lookTargetX = pixel.pos.x + rightX * titleOffsetX;
-      lookTargetY = pixel.pos.y + titleOffsetY;
-      lookTargetZ = pixel.pos.z + rightZ * titleOffsetX;
+      lookTargetX = focusDog.pos.x + rightX * titleOffsetX;
+      lookTargetY = focusDog.pos.y + titleOffsetY;
+      lookTargetZ = focusDog.pos.z + rightZ * titleOffsetX;
     }
 
     const horiz = Math.cos(cam.pitch) * cam.dist;
@@ -714,7 +1092,6 @@
     cam.lookAt[1] = damp(cam.lookAt[1], lookTargetY, 14, dt);
     cam.lookAt[2] = damp(cam.lookAt[2], lookTargetZ, 14, dt);
 
-    // Playful camera impact micro-shake right on CHOMP!
     const renderCamPos = camShakeTimer > 0
       ? [
           cam.pos[0] + (Math.random() - 0.5) * 0.12 * (camShakeTimer / 0.28),
@@ -723,14 +1100,10 @@
         ]
       : cam.pos;
 
-    // Update dynamic particles
     for (let i = fxParticles.length - 1; i >= 0; i--) {
       const p = fxParticles[i];
       p.life -= dt;
-      if (p.life <= 0) {
-        fxParticles.splice(i, 1);
-        continue;
-      }
+      if (p.life <= 0) { fxParticles.splice(i, 1); continue; }
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.z += p.vz * dt;
@@ -742,14 +1115,14 @@
       if (toastTimer <= 0) toastEl.classList.remove('show');
     }
 
-    // Build draw list and particles
     drawList.length = 0;
     world.appendDrawItems(drawList, time);
     pixel.appendDrawItems(drawList, time);
     pocky.appendDrawItems(drawList, time);
 
+    const focusP = playing ? myDog.pos : pixel.pos;
     renderParticles.length = 0;
-    world.appendAmbientParticles(renderParticles, time, pixel.pos.x, pixel.pos.z);
+    world.appendAmbientParticles(renderParticles, time, focusP.x, focusP.z);
     for (const p of fxParticles) {
       const t = clamp(p.life / p.maxLife, 0, 1);
       renderParticles.push({
@@ -765,22 +1138,42 @@
       renderParticles,
       renderCamPos,
       cam.lookAt,
-      [pixel.pos.x, pixel.pos.y, pixel.pos.z],
+      [focusP.x, focusP.y, focusP.z],
       time
     );
 
-    // Update 2D projected Pocky bark bubble, CHOMP badge & off-screen indicator
+    // 2D projected bark bubbles, CHOMP badge & off-screen opponent indicator
     if (playing) {
-      const pHead = pocky.getHeadWorldPos();
-      const proj = projectToScreen(pHead[0], pHead[1] + 0.35, pHead[2]);
-
-      if (pocky.barkBubbleTimer > 0 && proj.visible) {
-        barkBubbleEl.textContent = pocky.barkText;
-        barkBubbleEl.style.left = `${proj.x.toFixed(1)}px`;
-        barkBubbleEl.style.top = `${proj.y.toFixed(1)}px`;
-        barkBubbleEl.classList.remove('hidden');
+      const bubbleDog = (otherDog.barkBubbleTimer > 0) ? otherDog : (myDog.barkBubbleTimer > 0 ? myDog : null);
+      if (bubbleDog) {
+        const bHead = bubbleDog.getHeadWorldPos();
+        const bProj = projectToScreen(bHead[0], bHead[1] + 0.35, bHead[2]);
+        if (bProj.visible) {
+          barkBubbleEl.textContent = bubbleDog.barkText;
+          barkBubbleEl.style.left = `${bProj.x.toFixed(1)}px`;
+          barkBubbleEl.style.top = `${bProj.y.toFixed(1)}px`;
+          barkBubbleEl.classList.remove('hidden');
+        } else {
+          barkBubbleEl.classList.add('hidden');
+        }
       } else {
         barkBubbleEl.classList.add('hidden');
+      }
+
+      const oHead = otherDog.getHeadWorldPos();
+      const oProj = projectToScreen(oHead[0], oHead[1] + 0.35, oHead[2]);
+      if (!gameWon && !oProj.visible) {
+        const ang = Math.atan2(-oProj.ndcY, oProj.ndcX);
+        const pad = 54;
+        const cx = window.innerWidth * 0.5;
+        const cy = window.innerHeight * 0.5;
+        const ex = cx + Math.cos(ang) * (cx - pad);
+        const ey = cy + Math.sin(ang) * (cy - pad);
+        pockyArrowEl.style.left = `${clamp(ex, pad, window.innerWidth - pad)}px`;
+        pockyArrowEl.style.top = `${clamp(ey, pad + 36, window.innerHeight - pad)}px`;
+        pockyArrowEl.classList.remove('hidden');
+      } else {
+        pockyArrowEl.classList.add('hidden');
       }
 
       if (gameWon && pocky.chompLanded) {
@@ -794,26 +1187,10 @@
       } else {
         chompBadgeEl.classList.add('hidden');
       }
-
-      if (!gameWon && !proj.visible) {
-        // Point smoothly toward Pocky at screen edge so you never lose Pocky in the woods!
-        const ang = Math.atan2(-proj.ndcY, proj.ndcX);
-        const pad = 54;
-        const cx = window.innerWidth * 0.5;
-        const cy = window.innerHeight * 0.5;
-        const rx = cx - pad;
-        const ry = cy - pad;
-        const ex = cx + Math.cos(ang) * rx;
-        const ey = cy + Math.sin(ang) * ry;
-        pockyArrowEl.style.left = `${clamp(ex, pad, window.innerWidth - pad)}px`;
-        pockyArrowEl.style.top = `${clamp(ey, pad + 36, window.innerHeight - pad)}px`;
-        pockyArrowEl.classList.remove('hidden');
-      } else {
-        pockyArrowEl.classList.add('hidden');
-      }
     } else {
       barkBubbleEl.classList.add('hidden');
       pockyArrowEl.classList.add('hidden');
+      chompBadgeEl.classList.add('hidden');
     }
   }
 

@@ -9,7 +9,7 @@
 </head>
 <body>
   <canvas id="game-canvas"></canvas>
-  <div id="version-badge">v0.5</div>
+  <div id="version-badge">v0.6</div>
 
   <div id="title-overlay">
     <div class="title-card">
@@ -17,13 +17,77 @@
         <img src="assets/duo-photo.jpg" alt="Pixel and Pocky" />
       </div>
       <h1>PIXEL</h1>
-      <p class="subtitle">Chase Pocky Through the Forest!</p>
-      <p class="goal-desc">
-        Pocky keeps barking just out of reach. Chase for <strong>10s</strong> to start closing in,
-        and after <strong>20s</strong> catch up to bite Pocky&rsquo;s ear!
-      </p>
-      <button id="play-btn" type="button">Start the Chase!</button>
-      <p id="title-hint" class="mini-hint">WASD / Arrows to run &bull; Shift for zoomies &bull; Space to jump</p>
+      <p class="subtitle">Pixel &amp; Pocky Forest Chase</p>
+
+      <!-- Main Mode Menu -->
+      <div id="menu-main">
+        <p class="goal-desc">
+          <strong>Pixel</strong> chases <strong>Pocky</strong> through the forest! Play solo against Pocky AI or chase a friend peer-to-peer.
+        </p>
+        <div class="menu-btn-stack">
+          <button id="play-btn" class="primary-btn" type="button">Singleplayer</button>
+          <button id="mp-btn" class="secondary-btn" type="button">Multiplayer (P2P)</button>
+        </div>
+        <p id="title-hint" class="mini-hint">WASD / Arrows to run &bull; Shift for zoomies &bull; Space to jump</p>
+      </div>
+
+      <!-- Multiplayer Choose Host / Join -->
+      <div id="menu-mp-choice" class="hidden">
+        <p class="goal-desc">
+          Play directly peer-to-peer &mdash; no server needed! One player hosts and shares a 4-letter code.
+        </p>
+        <div class="menu-btn-stack">
+          <button id="host-btn" class="primary-btn" type="button">Host Game</button>
+          <button id="join-open-btn" class="secondary-btn" type="button">Join Game</button>
+          <button id="mp-back-btn" class="ghost-btn" type="button">&larr; Back</button>
+        </div>
+      </div>
+
+      <!-- Multiplayer Host Lobby -->
+      <div id="menu-mp-host" class="hidden">
+        <div class="room-box">
+          <div class="room-label">ROOM CODE</div>
+          <div id="host-room-code" class="room-code">----</div>
+          <button id="copy-link-btn" class="mini-btn" type="button">Copy Invite Link</button>
+        </div>
+
+        <div class="role-picker">
+          <div class="role-label">Choose your dog:</div>
+          <div class="role-row">
+            <button id="pick-pixel-btn" class="role-btn active" type="button">
+              <strong>Pixel</strong><span>Chaser</span>
+            </button>
+            <button id="pick-pocky-btn" class="role-btn" type="button">
+              <strong>Pocky</strong><span>Runner</span>
+            </button>
+          </div>
+          <div id="host-role-summary" class="role-summary">You: Pixel &bull; Friend: Pocky</div>
+        </div>
+
+        <p id="host-status" class="mp-status">Creating P2P room...</p>
+        <div class="menu-btn-stack">
+          <button id="host-start-btn" class="primary-btn" type="button" disabled>Waiting for Friend...</button>
+          <button id="host-cancel-btn" class="ghost-btn" type="button">&larr; Cancel</button>
+        </div>
+      </div>
+
+      <!-- Multiplayer Join Lobby -->
+      <div id="menu-mp-join" class="hidden">
+        <div id="join-input-group" class="join-row">
+          <input id="join-code-input" class="code-input" type="text" maxlength="6" placeholder="CODE" autocomplete="off" spellcheck="false" />
+          <button id="join-connect-btn" class="primary-btn compact" type="button">Join</button>
+        </div>
+
+        <div id="join-role-box" class="role-picker hidden">
+          <div id="join-role-summary" class="role-summary">You: Pocky (Runner) &bull; Host: Pixel (Chaser)</div>
+          <button id="join-swap-btn" class="mini-btn" type="button">Request Swap Dogs</button>
+        </div>
+
+        <p id="join-status" class="mp-status">Enter the 4-letter code from your friend.</p>
+        <div class="menu-btn-stack">
+          <button id="join-cancel-btn" class="ghost-btn" type="button">&larr; Back</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -32,24 +96,28 @@
       <div class="portrait-ring duo">
         <img src="assets/duo-photo.jpg" alt="Pixel and Pocky" />
       </div>
-      <div class="victory-badge">EAR CHOMPED!</div>
-      <h2>Pixel Got Pocky!</h2>
-      <p class="subtitle">Pixel caught up and playfully bit Pocky&rsquo;s floppy ear!</p>
+      <div id="victory-badge" class="victory-badge">EAR CHOMPED!</div>
+      <h2 id="victory-title">Pixel Got Pocky!</h2>
+      <p id="victory-sub" class="subtitle">Pixel caught up and playfully bit Pocky&rsquo;s floppy ear!</p>
       <p id="victory-stats" class="victory-stats"></p>
-      <button id="replay-btn" type="button">Chase Again</button>
+      <div class="menu-btn-stack">
+        <button id="replay-btn" class="primary-btn" type="button">Chase Again</button>
+        <button id="swap-replay-btn" class="secondary-btn hidden" type="button">Swap Dogs &amp; Rematch</button>
+        <button id="menu-return-btn" class="ghost-btn" type="button">Main Menu</button>
+      </div>
     </div>
   </div>
 
   <div id="hud" class="hidden">
     <div class="hud-top-left">
-      <img class="hud-avatar" src="assets/pixel-collar.jpg" alt="Pixel" />
+      <img id="hud-avatar" class="hud-avatar" src="assets/pixel-collar.jpg" alt="Player Dog" />
       <div class="chase-meta">
         <div class="hud-name-row">
-          <span class="hud-name">PIXEL vs POCKY</span>
+          <span id="hud-title" class="hud-name">PIXEL vs POCKY</span>
           <span id="chase-dist" class="hud-dist">8.6m away</span>
         </div>
         <div id="chase-phase" class="hud-phase">Pocky stopped &amp; is barking at you!</div>
-        <div class="chase-bar-wrap">
+        <div id="chase-bar-wrap" class="chase-bar-wrap">
           <div class="chase-bar-track">
             <div id="chase-bar-fill" class="chase-bar-fill"></div>
             <div class="chase-bar-mid" title="10s: Distance starts shrinking"></div>
@@ -84,7 +152,7 @@
     </div>
 
     <div id="controls-card">
-      <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / Arrows &mdash; Chase Pocky</div>
+      <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / Arrows &mdash; Run</div>
       <div><kbd>Shift</kbd> Zoomies &nbsp;&bull;&nbsp; <kbd>Space</kbd> Jump &nbsp;&bull;&nbsp; <kbd>B</kbd> Bark / Bite</div>
       <div><kbd>Drag</kbd> / <kbd>Q</kbd><kbd>E</kbd> Look &nbsp;&bull;&nbsp; <kbd>Scroll</kbd> Zoom &nbsp;&bull;&nbsp; <kbd>R</kbd> Restart</div>
     </div>
@@ -92,6 +160,8 @@
     <div id="toast"></div>
   </div>
 
+  <!-- Serverless WebRTC Peer-to-Peer signaling library (async so singleplayer loads instantly offline!) -->
+  <script async src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script src="js/math.js"></script>
   <script src="js/mesh.js"></script>
   <script src="js/renderer.js"></script>
@@ -99,6 +169,7 @@
   <script src="js/pixel.js"></script>
   <script src="js/pocky.js"></script>
   <script src="js/audio.js"></script>
+  <script src="js/net.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

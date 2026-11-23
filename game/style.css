@@ -71,6 +71,7 @@ html, body {
 }
 
 #title-overlay.hidden, #victory-overlay.hidden {
+  display: flex !important;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -169,29 +170,197 @@ html, body {
   font-weight: 600;
 }
 
-#play-btn, #replay-btn {
-  margin-top: 20px;
-  width: 100%;
-  padding: 14px 24px;
+.hidden {
+  display: none !important;
+}
+
+.menu-btn-stack {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.primary-btn, .secondary-btn, .ghost-btn, .mini-btn {
   border: none;
-  border-radius: 14px;
+  border-radius: 13px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: transform 0.14s ease, filter 0.14s ease, opacity 0.14s ease;
+}
+
+.primary-btn {
+  width: 100%;
+  padding: 13px 20px;
   background: linear-gradient(180deg, #f3be53 0%, #d48d32 100%);
   color: #29170b;
-  font-size: 1.1rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-size: 1.04rem;
+  box-shadow: 0 8px 20px rgba(212, 141, 50, 0.36);
+}
+
+.primary-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.primary-btn.compact {
+  width: auto;
+  padding: 12px 22px;
+}
+
+.secondary-btn {
+  width: 100%;
+  padding: 12px 20px;
+  background: rgba(255, 240, 212, 0.13);
+  border: 1.5px solid rgba(246, 212, 148, 0.42);
+  color: #ffe8ba;
+  font-size: 0.98rem;
+}
+
+.ghost-btn {
+  width: 100%;
+  padding: 9px 14px;
+  background: transparent;
+  color: rgba(235, 224, 206, 0.78);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.mini-btn {
+  margin-top: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(243, 190, 83, 0.2);
+  border: 1px solid rgba(243, 190, 83, 0.45);
+  color: #ffe5ad;
+  font-size: 0.8rem;
+}
+
+.primary-btn:hover:not(:disabled), .secondary-btn:hover, .mini-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.ghost-btn:hover {
+  color: #fff;
+}
+
+.room-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 244, 224, 0.08);
+  border: 1px solid rgba(246, 212, 148, 0.25);
+}
+
+.room-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  color: #d6c8b4;
+  font-weight: 700;
+}
+
+.room-code {
+  margin-top: 2px;
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 0.24em;
+  color: #ffd875;
+  text-indent: 0.24em;
+}
+
+.role-picker {
+  margin-top: 12px;
+}
+
+.role-label {
+  font-size: 0.78rem;
+  color: #d6c8b4;
+  margin-bottom: 6px;
+}
+
+.role-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.role-btn {
+  padding: 10px 8px;
+  border-radius: 12px;
+  background: rgba(255, 244, 224, 0.08);
+  border: 1.5px solid rgba(255, 244, 224, 0.2);
+  color: #e8dcc8;
   cursor: pointer;
-  box-shadow: 0 8px 20px rgba(212, 141, 50, 0.38);
-  transition: transform 0.14s ease, filter 0.14s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transition: all 0.15s ease;
 }
 
-#play-btn:hover, #replay-btn:hover {
-  transform: translateY(-2px);
-  filter: brightness(1.07);
+.role-btn strong {
+  font-size: 0.94rem;
 }
 
-#play-btn:active, #replay-btn:active {
-  transform: translateY(1px);
+.role-btn span {
+  font-size: 0.72rem;
+  opacity: 0.78;
+}
+
+.role-btn.active {
+  background: rgba(226, 76, 139, 0.24);
+  border-color: #f3be53;
+  color: #fff6e0;
+  box-shadow: 0 0 0 1px rgba(243, 190, 83, 0.4);
+}
+
+.role-summary {
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: #ffd982;
+  font-weight: 600;
+}
+
+.join-row {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+}
+
+.code-input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1.5px solid rgba(246, 212, 148, 0.42);
+  background: rgba(20, 14, 10, 0.65);
+  color: #ffe9be;
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  text-align: center;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.code-input:focus {
+  border-color: #f3be53;
+}
+
+.mp-status {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: #d7ccb8;
+  min-height: 1.2em;
+}
+
+.mp-status.error {
+  color: #ff9c9c;
 }
 
 .mini-hint {
@@ -210,7 +379,9 @@ html, body {
 }
 
 #hud.hidden {
+  display: block !important;
   opacity: 0;
+  pointer-events: none;
 }
 
 .hud-top-left {

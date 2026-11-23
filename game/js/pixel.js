@@ -634,6 +634,59 @@
       this.happyTimer = 0;
       this.bitingEar = false;
       this.biteAnimTime = 0;
+      this.barkText = '';
+      this.barkBubbleTimer = 0;
+    }
+
+    getHeadWorldPos() {
+      return Mat4.transformPoint(this.mHead, 0, 0.25, 0.08);
+    }
+
+    // Smoothly mirror remote player's Pixel in P2P multiplayer!
+    applyRemoteState(dt, remote, world, spawnParticles) {
+      if (this.bitingEar) {
+        this.update(dt, { forward: false, backward: false, left: false, right: false, sprint: false, jumpPressed: false }, 0, world, null, null);
+        return;
+      }
+      if (!remote) return;
+      const prevYaw = this.yaw;
+      this.pos.x = damp(this.pos.x, remote.x, 18, dt);
+      this.pos.y = damp(this.pos.y, remote.y, 18, dt);
+      this.pos.z = damp(this.pos.z, remote.z, 18, dt);
+      this.yaw = dampAngle(this.yaw, remote.yaw, 16, dt);
+      this.speed = damp(this.speed, remote.spd || 0, 14, dt);
+      this.grounded = !!remote.gnd;
+      this.isSprinting = !!remote.spr;
+
+      const yawDelta = Math.atan2(Math.sin(this.yaw - prevYaw), Math.cos(this.yaw - prevYaw));
+      this.turnRate = damp(this.turnRate, clamp(yawDelta / Math.max(dt, 0.001), -5, 5), 10, dt);
+
+      const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+      const hFront = world.getHeight(this.pos.x + fx * 0.5, this.pos.z + fz * 0.5);
+      const hBack  = world.getHeight(this.pos.x - fx * 0.5, this.pos.z - fz * 0.5);
+      this.groundPitch = damp(this.groundPitch, this.grounded ? clamp(Math.atan2(hBack - hFront, 1.0), -0.45, 0.45) : 0, 10, dt);
+
+      const prevPhase = this.gaitPhase;
+      if (this.speed > 0.25 && this.grounded) {
+        const strideFreq = lerp(7.8, 13.8, clamp(this.speed / this.maxSprintSpeed, 0, 1));
+        this.gaitPhase += strideFreq * dt;
+        if (Math.floor(this.gaitPhase / Math.PI) > Math.floor(prevPhase / Math.PI)) {
+          if (spawnParticles && this.isSprinting && Math.random() < 0.65) {
+            spawnParticles('zoomies', this.pos.x - fx * 0.35, this.pos.y + 0.08, this.pos.z - fz * 0.35);
+          }
+        }
+      }
+      this.tailPhase += (this.speed > 0.5 ? 11.5 : 5.8) * dt;
+      const runInt = clamp(this.speed / this.maxSprintSpeed, 0, 1);
+      const targetEar = this.grounded ? Math.abs(Math.sin(this.gaitPhase)) * 0.36 * runInt + (this.barkTimer > 0 ? 0.22 : 0) : 0.32;
+      this.earBounceVel += ((targetEar - this.earBounce) * 95 - this.earBounceVel * 11) * dt;
+      this.earBounce = clamp(this.earBounce + this.earBounceVel * dt, -0.1, 0.48);
+      this.bodyRoll = damp(this.bodyRoll, clamp(-this.turnRate * 0.08 * runInt, -0.25, 0.25), 9, dt);
+      this.squash = damp(this.squash, 1.0, 12, dt);
+      this.headLookYaw = damp(this.headLookYaw, clamp(this.turnRate * 0.12, -0.38, 0.38), 8, dt);
+      if (this.barkTimer > 0) this.barkTimer = Math.max(0, this.barkTimer - dt);
+      if (this.barkBubbleTimer > 0) this.barkBubbleTimer = Math.max(0, this.barkBubbleTimer - dt);
+      if (this.happyTimer > 0) this.happyTimer = Math.max(0, this.happyTimer - dt);
     }
 
     startEarBite(pocky, world, onChompImpact) {
@@ -660,10 +713,12 @@
       this.grounded = false;
     }
 
-    triggerBark(audio, spawnParticles) {
+    triggerBark(audio, spawnParticles, customText) {
       if (this.barkTimer > 0.12) return false;
       this.barkTimer = 0.42;
       this.happyTimer = Math.max(this.happyTimer, 1.8);
+      this.barkText = customText || ['WOOF!', 'ARF!', 'GETTING YOU!', 'ROOF!'][Math.floor(Math.random() * 4)];
+      this.barkBubbleTimer = 1.15;
       if (this.grounded) {
         this.vel.y = Math.max(this.vel.y, 2.5);
         this.grounded = false;
@@ -857,6 +912,7 @@
       this.headLookYaw = damp(this.headLookYaw, clamp(this.turnRate * 0.12, -0.38, 0.38), 8, dt);
 
       if (this.barkTimer > 0) this.barkTimer = Math.max(0, this.barkTimer - dt);
+      if (this.barkBubbleTimer > 0) this.barkBubbleTimer = Math.max(0, this.barkBubbleTimer - dt);
       if (this.happyTimer > 0) this.happyTimer = Math.max(0, this.happyTimer - dt);
     }
 
